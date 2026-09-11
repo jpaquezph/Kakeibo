@@ -51,6 +51,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         if auth.session is not None:
             auth.session.touch()
         estado["seccion"] = key
+        page.overlay.clear()
         try:
             shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
         except Exception:

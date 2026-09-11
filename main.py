@@ -34,16 +34,36 @@ def main(page: ft.Page) -> None:
 
     monitor_task_started = {"value": False}
 
+    def _log_error(etiqueta: str) -> None:
+        import traceback
+        with open("kakeibo_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"--- error en {etiqueta} ---\n")
+            f.write(traceback.format_exc())
+            f.write("\n")
+
     def mostrar_login():
-        root.content = build_login_view(page, auth, on_success=lambda session: mostrar_app())
+        page.overlay.clear()
+        try:
+            root.content = build_login_view(page, auth, on_success=lambda session: mostrar_app())
+        except Exception:
+            _log_error("mostrar_login")
+            raise
         page.update()
 
     def mostrar_lock():
-        root.content = build_lock_view(page, auth, on_unlock=mostrar_app)
+        try:
+            root.content = build_lock_view(page, auth, on_unlock=mostrar_app)
+        except Exception:
+            _log_error("mostrar_lock")
+            raise
         page.update()
 
     def mostrar_app():
-        root.content = build_app_shell(page, conn, auth, on_logout=mostrar_login)
+        try:
+            root.content = build_app_shell(page, conn, auth, on_logout=mostrar_login)
+        except Exception:
+            _log_error("mostrar_app")
+            raise
         page.update()
         if not monitor_task_started["value"]:
             monitor_task_started["value"] = True
