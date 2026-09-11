@@ -51,3 +51,13 @@ def test_cuota_de_prestamo_no_se_puede_pagar_dos_veces(conn):
     service.pagar_cuota(prestamo.cuotas[0].id)
     with pytest.raises(ValueError):
         service.pagar_cuota(prestamo.cuotas[0].id)
+
+
+def test_editar_datos_prestamo(conn):
+    service = PrestamoService(conn)
+    prestamo = service.registrar_prestamo("Prestamo auto", "detalle viejo", Money.from_decimal("1000", Moneda.ARS), 2, date(2026, 1, 1))
+
+    editado = service.editar_datos(prestamo.id, "Prestamo del auto (corregido)", "detalle nuevo")
+
+    assert editado.nombre == "Prestamo del auto (corregido)"
+    assert editado.detalle == "detalle nuevo"

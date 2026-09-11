@@ -47,6 +47,14 @@ class PrestamoService:
     def pagar_cuota(self, cuota_id: int, fecha_pago: date | None = None) -> None:
         self._repo.marcar_cuota_pagada(cuota_id, fecha_pago or date.today())
 
+    def editar_datos(self, prestamo_id: int, nombre: str, detalle: str) -> Prestamo:
+        """Edita nombre y detalle de un prestamo existente. No permite cambiar el
+        monto ni la cantidad de cuotas para no romper el esquema ya generado."""
+        if not nombre.strip():
+            raise ValueError("El nombre no puede estar vacio")
+        self._repo.actualizar_datos(prestamo_id, nombre.strip(), detalle)
+        return self._repo.obtener(prestamo_id)
+
     def eliminar_prestamo(self, prestamo_id: int) -> None:
         self._repo.eliminar(prestamo_id)
 

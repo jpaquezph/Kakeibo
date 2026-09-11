@@ -60,12 +60,17 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService) -> 
 
     tarjeta_items = []
     for tt in resumen.por_tarjeta:
+        detalle_partes = []
+        if tt.total_pendiente_un_pago.cents > 0:
+            detalle_partes.append(f"1 pago: {tt.total_pendiente_un_pago.formatted()}")
+        if tt.total_pendiente_cuotas.cents > 0:
+            detalle_partes.append(f"cuotas: {tt.total_pendiente_cuotas.formatted()}")
         tarjeta_items.append(
             ft.Row(
                 [
                     ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, size=16, color=theme.TARJETAS_COLOR),
                     ft.Text(tt.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True),
-                    ft.Text(tt.total_pendiente.formatted(), size=13, weight=ft.FontWeight.W_600, color=theme.TARJETAS_COLOR),
+                    ft.Text("  •  ".join(detalle_partes), size=12, weight=ft.FontWeight.W_600, color=theme.TARJETAS_COLOR),
                 ],
                 spacing=10,
             )

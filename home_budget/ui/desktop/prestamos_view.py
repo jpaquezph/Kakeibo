@@ -33,11 +33,12 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
             acciones.append(
                 theme.primary_button(
                     f"Pagar cuota {proxima.numero_cuota} ({proxima.monto.formatted()})",
-                    lambda e, cid=proxima.id: pagar_cuota(cid),
+                    lambda e, cid=proxima.id, num=proxima.numero_cuota, nombre=p.nombre: confirmar_pago(cid, num, nombre),
                     color=theme.PRESTAMOS_COLOR,
                     icon=ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
                 )
             )
+        acciones.append(ft.IconButton(icon=ft.Icons.EDIT_ROUNDED, icon_color=theme.TEXT_MUTED, icon_size=18, on_click=lambda e, prestamo=p: dialogo_editar(prestamo)))
         acciones.append(ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=theme.EXPENSE_RED, icon_size=18, on_click=lambda e, pid=p.id: eliminar(pid)))
 
         return theme.card(
@@ -67,9 +68,55 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
             padding=18,
         )
 
-    def pagar_cuota(cuota_id: int):
-        prestamo_service.pagar_cuota(cuota_id)
-        refrescar()
+    def confirmar_pago(cuota_id: int, numero_cuota: int, nombre_prestamo: str):
+        def confirmar(_e):
+            prestamo_service.pagar_cuota(cuota_id)
+            page.pop_dialog()
+            refrescar()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Confirmar pago"),
+            content=ft.Text(f'¿Seguro que querés pagar la cuota {numero_cuota} de "{nombre_prestamo}"?'),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Sí, pagar", confirmar, color=theme.PRESTAMOS_COLOR, icon=ft.Icons.CHECK_ROUNDED),
+            ],
+        )
+        page.show_dialog(dialog)
+
+    def dialogo_editar(prestamo):
+        nombre_f = ft.TextField(label="Nombre del préstamo", value=prestamo.nombre, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        detalle_f = ft.TextField(label="Detalle (opcional)", value=prestamo.detalle, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
+
+        def guardar(_e):
+            try:
+                prestamo_service.editar_datos(prestamo.id, nombre_f.value or "", detalle_f.value or "")
+            except ValueError as exc:
+                error_text.value = str(exc)
+                error_text.visible = True
+                page.update()
+                return
+            page.pop_dialog()
+            refrescar()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Editar préstamo"),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        nombre_f, detalle_f, error_text,
+                        ft.Text("El monto y la cantidad de cuotas no se pueden editar.", size=11, color=theme.TEXT_MUTED, italic=True),
+                    ],
+                    spacing=12, tight=True,
+                ),
+                width=380,
+            ),
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Guardar", guardar, color=theme.PRESTAMOS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
+        )
+        page.show_dialog(dialog)
 
     def eliminar(prestamo_id: int):
         def confirmar(_e):

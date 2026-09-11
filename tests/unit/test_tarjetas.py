@@ -117,3 +117,47 @@ def test_cuota_inicial_invalida_lanza_error(conn):
             tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("1000", Moneda.ARS),
             _categoria_id(conn), cantidad_cuotas=6, cuota_inicial=7,
         )
+
+
+def test_cuotas_marcadas_pagadas_por_cuota_inicial_guardan_fecha_de_pago(conn):
+    """Regresion: el INSERT de cuotas no persistia fecha_pago, asi que una
+    cuota marcada como pagada via cuota_inicial quedaba sin fecha al releer."""
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    compra = service.registrar_compra(
+        tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("1200", Moneda.ARS),
+        _categoria_id(conn), cantidad_cuotas=6, cuota_inicial=3,
+    )
+    recargada = service.obtener_compra(compra.id)
+    assert recargada.cuotas[0].fecha_pago is not None
+    assert recargada.cuotas[1].fecha_pago is not None
+    assert recargada.cuotas[2].fecha_pago is None
+
+
+def test_editar_tarjeta(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS, color="#D6467E")
+
+    editada = service.editar_tarjeta(tarjeta.id, "Visa Naranja", "Banco Naranja", "5678", "USD", "#EB6834")
+
+    assert editada.nombre == "Visa Naranja"
+    assert editada.banco == "Banco Naranja"
+    assert editada.ultimos_digitos == "5678"
+    assert editada.moneda == Moneda.USD
+    assert editada.color == "#EB6834"
+    recargada = service.listar_tarjetas()[0]
+    assert recargada.nombre == "Visa Naranja"
+    assert recargada.color == "#EB6834"
+
+
+def test_editar_datos_compra(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    cat_original = _categoria_id(conn, "Tarjeta de crédito")
+    cat_nueva = _categoria_id(conn, "Comida")
+    compra = service.registrar_compra(tarjeta.id, date(2026, 1, 1), "Super", "", Money.from_decimal("500", Moneda.ARS), cat_original, 1)
+
+    editada = service.editar_datos_compra(compra.id, "Supermercado (corregido)", "detalle nuevo", cat_nueva)
+
+    assert editada.concepto == "Supermercado (corregido)"
+    assert editada.categoria_id == cat_nueva

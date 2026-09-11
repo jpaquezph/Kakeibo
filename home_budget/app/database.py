@@ -24,6 +24,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.executescript(migration.read_text(encoding="utf-8"))
     _ensure_categoria_tipo_column(conn)
     _ensure_tarjeta_color_column(conn)
+    _ensure_usuario_recuperacion_columnas(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -40,6 +41,17 @@ def _ensure_tarjeta_color_column(conn: sqlite3.Connection) -> None:
     columnas = {row["name"] for row in conn.execute("PRAGMA table_info(tarjetas)")}
     if "color" not in columnas:
         conn.execute("ALTER TABLE tarjetas ADD COLUMN color TEXT NOT NULL DEFAULT '#D6467E'")
+
+
+def _ensure_usuario_recuperacion_columnas(conn: sqlite3.Connection) -> None:
+    """Agrega las columnas de pregunta secreta (recuperacion de contrasena) si faltan."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(usuarios)")}
+    if "pregunta_secreta" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN pregunta_secreta TEXT NOT NULL DEFAULT ''")
+    if "respuesta_hash" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_hash TEXT NOT NULL DEFAULT ''")
+    if "respuesta_salt" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_salt TEXT NOT NULL DEFAULT ''")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

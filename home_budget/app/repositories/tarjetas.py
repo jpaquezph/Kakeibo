@@ -100,12 +100,22 @@ class CompraRepository:
         compra_id = cur.lastrowid
         for cuota in compra.cuotas:
             self._conn.execute(
-                """INSERT INTO cuotas_compra (compra_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (compra_id, cuota.numero_cuota, cuota.monto.cents, cuota.fecha_vencimiento.isoformat(), int(cuota.pagada)),
+                """INSERT INTO cuotas_compra (compra_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada, fecha_pago)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    compra_id, cuota.numero_cuota, cuota.monto.cents, cuota.fecha_vencimiento.isoformat(),
+                    int(cuota.pagada), cuota.fecha_pago.isoformat() if cuota.fecha_pago else None,
+                ),
             )
         self._conn.commit()
         return compra_id
+
+    def actualizar_datos(self, compra_id: int, concepto: str, detalle: str, categoria_id: int) -> None:
+        self._conn.execute(
+            "UPDATE compras SET concepto = ?, detalle = ?, categoria_id = ? WHERE id = ?",
+            (concepto, detalle, categoria_id, compra_id),
+        )
+        self._conn.commit()
 
     def marcar_cuota_pagada(self, cuota_id: int, fecha_pago: date) -> None:
         row = self._conn.execute("SELECT pagada FROM cuotas_compra WHERE id = ?", (cuota_id,)).fetchone()

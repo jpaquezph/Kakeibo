@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS usuarios (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     salt TEXT NOT NULL,
+    pregunta_secreta TEXT NOT NULL DEFAULT '',
+    respuesta_hash TEXT NOT NULL DEFAULT '',
+    respuesta_salt TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

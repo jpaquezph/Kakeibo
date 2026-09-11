@@ -5,6 +5,7 @@ from home_budget.app.domain.money import Money, Moneda
 from home_budget.app.repositories.categorias import CategoriaRepository
 from home_budget.app.services.dashboard import DashboardService
 from home_budget.app.services.movimientos import MovimientoService
+from home_budget.app.services.tarjetas import TarjetaService
 
 
 def _categoria_id(conn, nombre):
@@ -35,3 +36,19 @@ def test_totales_de_dashboard_coinciden_con_los_movimientos(conn):
 
     total_comida = next(c for c in resumen.por_categoria if c.nombre == "Comida")
     assert total_comida.total.amount == 15000
+
+
+def test_pendiente_por_tarjeta_separa_un_pago_de_cuotas(conn):
+    tarjetas = TarjetaService(conn)
+    cat = _categoria_id(conn, "Tarjeta de crédito")
+    tarjeta = tarjetas.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+
+    tarjetas.registrar_compra(tarjeta.id, date(2026, 1, 1), "Cena", "", Money.from_decimal("10000", Moneda.ARS), cat, 1)
+    tarjetas.registrar_compra(tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("1000000", Moneda.ARS), cat, 10)
+
+    resumen = DashboardService(conn).resumen()
+    total_tarjeta = next(t for t in resumen.por_tarjeta if t.tarjeta_id == tarjeta.id)
+
+    assert total_tarjeta.total_pendiente_un_pago.amount == 10000
+    assert total_tarjeta.total_pendiente_cuotas.amount == 1000000
+    assert total_tarjeta.total_pendiente.amount == 1010000

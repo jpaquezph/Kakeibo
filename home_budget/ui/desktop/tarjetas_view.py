@@ -36,16 +36,26 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
         return ft.Container(
             content=ft.Column(
                 [
-                    ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, color="#FFFFFF", size=22),
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, color="#FFFFFF", size=22),
+                            ft.IconButton(
+                                icon=ft.Icons.EDIT_ROUNDED, icon_color=ft.Colors.with_opacity(0.85, "#FFFFFF"), icon_size=16,
+                                on_click=lambda e, tarjeta=t: dialogo_tarjeta(tarjeta),
+                                style=ft.ButtonStyle(padding=0),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
                     ft.Text(t.nombre, color="#FFFFFF", weight=ft.FontWeight.BOLD, size=15),
-                    ft.Text(f"{t.banco}  ••{t.ultimos_digitos}", color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
+                    ft.Text(f"{t.banco}  ••{t.ultimos_digitos}" if t.ultimos_digitos else t.banco, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
                     ft.Text(t.moneda.value, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
                 ],
-                spacing=4,
+                spacing=2,
             ),
             width=200,
             height=110,
-            padding=16,
+            padding=12,
             border_radius=theme.RADIUS,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_LEFT,
@@ -79,7 +89,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             acciones.append(
                 theme.primary_button(
                     f"Pagar cuota {proxima.numero_cuota}",
-                    lambda e, cid=proxima.id: pagar_cuota(cid),
+                    lambda e, cid=proxima.id, num=proxima.numero_cuota, concepto=c.concepto: confirmar_pago_compra(cid, num, concepto),
                     color=theme.TARJETAS_COLOR,
                     icon=ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
                 )
@@ -94,14 +104,16 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                         [
                             ft.Text(c.concepto, size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, expand=True),
                             ft.Text(c.monto_total.formatted(), size=15, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
+                            ft.IconButton(icon=ft.Icons.EDIT_ROUNDED, icon_color=theme.TEXT_MUTED, icon_size=16, on_click=lambda e, compra=c: dialogo_editar_compra(compra)),
                             ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=theme.EXPENSE_RED, icon_size=16, on_click=lambda e, cid=c.id: eliminar_compra(cid)),
                         ]
                     ),
                     ft.Row(
                         [
-                            ft.Text(f"Cuota {c.cuota_actual} de {c.cantidad_cuotas}", size=12, color=theme.TEXT_SECONDARY),
-                            ft.Text(f"Restantes: {c.cuotas_restantes}", size=12, color=theme.TEXT_SECONDARY),
-                            ft.Text(f"Cuota: {c.monto_cuota.formatted()}", size=12, color=theme.TEXT_SECONDARY),
+                            components.category_chip(_nombre_categoria(c.categoria_id), theme.TARJETAS_COLOR, "sell_rounded"),
+                            ft.Text("1 pago" if c.cantidad_cuotas == 1 else f"Cuota {c.cuota_actual} de {c.cantidad_cuotas}", size=12, color=theme.TEXT_SECONDARY),
+                            ft.Text(f"Restantes: {c.cuotas_restantes}", size=12, color=theme.TEXT_SECONDARY) if c.cantidad_cuotas > 1 else ft.Container(),
+                            ft.Text(f"Cuota: {c.monto_cuota.formatted()}", size=12, color=theme.TEXT_SECONDARY) if c.cantidad_cuotas > 1 else ft.Container(),
                             ft.Text(f"Pendiente: {c.monto_pendiente.formatted()}", size=12, weight=ft.FontWeight.W_600, color=theme.EXPENSE_RED),
                         ],
                         spacing=14,
@@ -114,22 +126,40 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             padding=16,
         )
 
-    def pagar_cuota(cuota_id: int):
-        tarjeta_service.pagar_cuota(cuota_id)
-        refrescar_tarjetas()
+    def _nombre_categoria(categoria_id: int) -> str:
+        cat = next((c for c in categorias if c.id == categoria_id), None)
+        return cat.nombre if cat else "Categoría"
+
+    def confirmar_pago_compra(cuota_id: int, numero_cuota: int, concepto: str):
+        def confirmar(_e):
+            tarjeta_service.pagar_cuota(cuota_id)
+            page.pop_dialog()
+            refrescar_tarjetas()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Confirmar pago"),
+            content=ft.Text(f'¿Seguro que querés pagar la cuota {numero_cuota} de "{concepto}"?'),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Sí, pagar", confirmar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED),
+            ],
+        )
+        page.show_dialog(dialog)
 
     def eliminar_compra(compra_id: int):
         tarjeta_service.eliminar_compra(compra_id)
         refrescar_tarjetas()
 
-    def nueva_tarjeta(_e=None):
-        nombre_f = ft.TextField(label="Nombre (ej: Visa Galicia)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
-        banco_f = ft.TextField(label="Banco", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
-        digitos_f = ft.TextField(label="Últimos 4 dígitos (opcional)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, max_length=4)
-        moneda_dd = ft.Dropdown(label="Moneda", value=Moneda.ARS.value, options=[ft.dropdown.Option(m.value) for m in Moneda], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+    def dialogo_tarjeta(tarjeta=None):
+        es_edicion = tarjeta is not None
+        nombre_f = ft.TextField(label="Nombre (ej: Visa Galicia)", value=tarjeta.nombre if es_edicion else "", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        banco_f = ft.TextField(label="Banco", value=tarjeta.banco if es_edicion else "", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        digitos_f = ft.TextField(label="Últimos 4 dígitos (opcional)", value=tarjeta.ultimos_digitos if es_edicion else "", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, max_length=4)
+        moneda_dd = ft.Dropdown(label="Moneda", value=(tarjeta.moneda.value if es_edicion else Moneda.ARS.value), options=[ft.dropdown.Option(m.value) for m in Moneda], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
-        color_elegido = {"value": theme.TARJETA_COLORES[0]}
+        color_elegido = {"value": tarjeta.color if es_edicion else theme.TARJETA_COLORES[0]}
         swatches_row = ft.Row(spacing=10)
 
         def elegir_color(color):
@@ -155,11 +185,17 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             try:
                 if not (nombre_f.value or "").strip():
                     raise ValueError("El nombre de la tarjeta es obligatorio")
-                t = tarjeta_service.crear_tarjeta(
-                    nombre_f.value.strip(), banco_f.value or "", digitos_f.value or "",
-                    moneda_dd.value, color_elegido["value"],
-                )
-                estado["tarjeta_id"] = t.id
+                if es_edicion:
+                    tarjeta_service.editar_tarjeta(
+                        tarjeta.id, nombre_f.value.strip(), banco_f.value or "", digitos_f.value or "",
+                        moneda_dd.value, color_elegido["value"],
+                    )
+                else:
+                    t = tarjeta_service.crear_tarjeta(
+                        nombre_f.value.strip(), banco_f.value or "", digitos_f.value or "",
+                        moneda_dd.value, color_elegido["value"],
+                    )
+                    estado["tarjeta_id"] = t.id
             except ValueError as exc:
                 error_text.value = str(exc)
                 error_text.visible = True
@@ -170,7 +206,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Nueva tarjeta"),
+            title=ft.Text("Editar tarjeta" if es_edicion else "Nueva tarjeta"),
             content=ft.Container(
                 ft.Column(
                     [
@@ -183,7 +219,45 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                 ),
                 width=360,
             ),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Guardar" if es_edicion else "Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
+        )
+        page.show_dialog(dialog)
+
+    def dialogo_editar_compra(compra):
+        concepto_f = ft.TextField(label="Concepto", value=compra.concepto, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        detalle_f = ft.TextField(label="Detalle (opcional)", value=compra.detalle, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        categoria_dd = ft.Dropdown(
+            label="Categoría", value=str(compra.categoria_id),
+            options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias],
+            filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+        )
+        error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
+
+        def guardar(_e):
+            try:
+                tarjeta_service.editar_datos_compra(compra.id, concepto_f.value or "", detalle_f.value or "", int(categoria_dd.value))
+            except ValueError as exc:
+                error_text.value = str(exc)
+                error_text.visible = True
+                page.update()
+                return
+            page.pop_dialog()
+            refrescar_tarjetas()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Editar compra"),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        concepto_f, detalle_f, categoria_dd, error_text,
+                        ft.Text("El monto y la cantidad de cuotas no se pueden editar.", size=11, color=theme.TEXT_MUTED, italic=True),
+                    ],
+                    spacing=12, tight=True,
+                ),
+                width=380,
+            ),
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Guardar", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
         page.show_dialog(dialog)
 
@@ -210,15 +284,34 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             options=[ft.dropdown.Option(str(t.id), t.nombre) for t in tarjetas_disponibles],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
+
+        tipo_selector = ft.SegmentedButton(
+            segments=[
+                ft.Segment(value="un_pago", label=ft.Text("1 pago"), icon=ft.Icons.PAYMENTS_ROUNDED),
+                ft.Segment(value="cuotas", label=ft.Text("En cuotas"), icon=ft.Icons.CALENDAR_VIEW_MONTH_ROUNDED),
+            ],
+            selected=["un_pago"],
+            allow_multiple_selection=False,
+            allow_empty_selection=False,
+        )
+
         concepto_f = ft.TextField(label="Concepto", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         detalle_f = ft.TextField(label="Detalle (opcional)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         monto_f = ft.TextField(label="Monto total", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
-        cuotas_f = ft.TextField(label="Cantidad de cuotas", value="1", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
+        cuotas_f = ft.TextField(label="Cantidad de cuotas", value="2", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
         cuota_inicial_f = ft.TextField(
             label="¿En qué cuota empezás?", value="1", filled=True, bgcolor=theme.SURFACE_ALT,
             border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER,
             helper="Si ya veniás pagando (ej: compraste hace 3 meses), poné en qué cuota estás ahora.",
         )
+        cuotas_container = ft.Column([cuotas_f, cuota_inicial_f], spacing=12, visible=False)
+
+        def on_tipo_change(_e):
+            cuotas_container.visible = "cuotas" in tipo_selector.selected
+            page.update()
+
+        tipo_selector.on_change = on_tipo_change
+
         categoria_dd = ft.Dropdown(label="Categoría", value=str(categorias[0].id) if categorias else None, options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
@@ -227,8 +320,9 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                 tarjeta_id = int(tarjeta_dd.value)
                 tarjeta = next(t for t in tarjetas_disponibles if t.id == tarjeta_id)
                 monto = Money.from_decimal((monto_f.value or "0").replace(",", "."), tarjeta.moneda)
-                cantidad = int(cuotas_f.value or "1")
-                cuota_inicial = int(cuota_inicial_f.value or "1")
+                es_en_cuotas = "cuotas" in tipo_selector.selected
+                cantidad = int(cuotas_f.value or "1") if es_en_cuotas else 1
+                cuota_inicial = int(cuota_inicial_f.value or "1") if es_en_cuotas else 1
                 tarjeta_service.registrar_compra(
                     tarjeta_id, fecha_holder["value"], concepto_f.value or "", detalle_f.value or "",
                     monto, int(categoria_dd.value), cantidad, cuota_inicial,
@@ -250,7 +344,10 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                     [
                         tarjeta_dd,
                         ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
-                        concepto_f, detalle_f, monto_f, cuotas_f, cuota_inicial_f, categoria_dd, error_text,
+                        concepto_f, detalle_f, monto_f,
+                        tipo_selector,
+                        cuotas_container,
+                        categoria_dd, error_text,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
@@ -263,7 +360,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
     header = ft.Row(
         [
             ft.Text("Tarjetas", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
-            ft.Row([theme.secondary_button("Nueva tarjeta", nueva_tarjeta, icon=ft.Icons.ADD_CARD_ROUNDED), theme.primary_button("Nueva compra", nueva_compra, color=theme.TARJETAS_COLOR, icon=ft.Icons.ADD_SHOPPING_CART_ROUNDED)]),
+            ft.Row([theme.secondary_button("Nueva tarjeta", lambda e: dialogo_tarjeta(None), icon=ft.Icons.ADD_CARD_ROUNDED), theme.primary_button("Nueva compra", nueva_compra, color=theme.TARJETAS_COLOR, icon=ft.Icons.ADD_SHOPPING_CART_ROUNDED)]),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )

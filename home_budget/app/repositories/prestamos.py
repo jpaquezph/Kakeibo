@@ -52,10 +52,21 @@ class PrestamoRepository:
         prestamo_id = cur.lastrowid
         for cuota in prestamo.cuotas:
             self._conn.execute(
-                """INSERT INTO cuotas_prestamo (prestamo_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (prestamo_id, cuota.numero_cuota, cuota.monto.cents, cuota.fecha_vencimiento.isoformat(), int(cuota.pagada)),
+                """INSERT INTO cuotas_prestamo (prestamo_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada, fecha_pago)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    prestamo_id, cuota.numero_cuota, cuota.monto.cents, cuota.fecha_vencimiento.isoformat(),
+                    int(cuota.pagada), cuota.fecha_pago.isoformat() if cuota.fecha_pago else None,
+                ),
             )
+        self._conn.commit()
+        return prestamo_id
+
+    def actualizar_datos(self, prestamo_id: int, nombre: str, detalle: str) -> None:
+        self._conn.execute(
+            "UPDATE prestamos SET nombre = ?, detalle = ? WHERE id = ?",
+            (nombre, detalle, prestamo_id),
+        )
         self._conn.commit()
         return prestamo_id
 

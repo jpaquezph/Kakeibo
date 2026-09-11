@@ -23,6 +23,18 @@ class TarjetaService:
     def listar_tarjetas(self, solo_activas: bool = False) -> list[Tarjeta]:
         return self._tarjetas.listar(solo_activas)
 
+    def editar_tarjeta(self, tarjeta_id: int, nombre: str, banco: str, ultimos_digitos: str, moneda, color: str) -> Tarjeta:
+        actual = next((t for t in self._tarjetas.listar() if t.id == tarjeta_id), None)
+        if actual is None:
+            raise ValueError("Tarjeta inexistente")
+        actual.nombre = nombre
+        actual.banco = banco
+        actual.ultimos_digitos = ultimos_digitos
+        actual.moneda = Moneda(moneda)
+        actual.color = color
+        self._tarjetas.actualizar(actual)
+        return actual
+
     def eliminar_tarjeta(self, tarjeta_id: int) -> None:
         self._tarjetas.eliminar(tarjeta_id)
 
@@ -73,6 +85,15 @@ class TarjetaService:
 
     def pagar_cuota(self, cuota_id: int, fecha_pago: date | None = None) -> None:
         self._compras.marcar_cuota_pagada(cuota_id, fecha_pago or date.today())
+
+    def editar_datos_compra(self, compra_id: int, concepto: str, detalle: str, categoria_id: int) -> Compra:
+        """Edita los datos descriptivos de una compra (concepto, detalle, categoria).
+        No permite cambiar el monto ni la cantidad de cuotas para no romper el
+        esquema de cuotas ya generado (algunas pueden estar pagadas)."""
+        if not concepto.strip():
+            raise ValueError("El concepto no puede estar vacio")
+        self._compras.actualizar_datos(compra_id, concepto.strip(), detalle, categoria_id)
+        return self._compras.obtener(compra_id)
 
     def eliminar_compra(self, compra_id: int) -> None:
         self._compras.eliminar(compra_id)

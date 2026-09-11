@@ -33,7 +33,12 @@ class TotalTarjeta:
     tarjeta_id: int
     nombre: str
     moneda: Moneda
-    total_pendiente: Money
+    total_pendiente_un_pago: Money
+    total_pendiente_cuotas: Money
+
+    @property
+    def total_pendiente(self) -> Money:
+        return self.total_pendiente_un_pago + self.total_pendiente_cuotas
 
 
 @dataclass
@@ -109,19 +114,31 @@ class DashboardService:
 
     def _totales_por_tarjeta(self) -> list[TotalTarjeta]:
         rows = self._conn.execute(
-            """SELECT t.id AS tarjeta_id, t.nombre, t.moneda, SUM(cc.monto_centavos) AS total
+            """SELECT t.id AS tarjeta_id, t.nombre, t.moneda,
+                      CASE WHEN co.cantidad_cuotas = 1 THEN 'un_pago' ELSE 'cuotas' END AS grupo,
+                      SUM(cc.monto_centavos) AS total
                FROM cuotas_compra cc
                JOIN compras co ON co.id = cc.compra_id
                JOIN tarjetas t ON t.id = co.tarjeta_id
                WHERE cc.pagada = 0
-               GROUP BY t.id"""
+               GROUP BY t.id, grupo
+               ORDER BY t.nombre"""
         ).fetchall()
-        return [
-            TotalTarjeta(
-                tarjeta_id=r["tarjeta_id"],
-                nombre=r["nombre"],
-                moneda=Moneda(r["moneda"]),
-                total_pendiente=Money(r["total"] or 0, r["moneda"]),
-            )
-            for r in rows
-        ]
+
+        por_tarjeta: dict[int, TotalTarjeta] = {}
+        for r in rows:
+            tarjeta_id = r["tarjeta_id"]
+            if tarjeta_id not in por_tarjeta:
+                por_tarjeta[tarjeta_id] = TotalTarjeta(
+                    tarjeta_id=tarjeta_id,
+                    nombre=r["nombre"],
+                    moneda=Moneda(r["moneda"]),
+                    total_pendiente_un_pago=Money.zero(r["moneda"]),
+                    total_pendiente_cuotas=Money.zero(r["moneda"]),
+                )
+            monto = Money(r["total"] or 0, r["moneda"])
+            if r["grupo"] == "un_pago":
+                por_tarjeta[tarjeta_id].total_pendiente_un_pago = monto
+            else:
+                por_tarjeta[tarjeta_id].total_pendiente_cuotas = monto
+        return list(por_tarjeta.values())

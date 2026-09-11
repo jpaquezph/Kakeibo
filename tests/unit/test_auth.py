@@ -46,3 +46,30 @@ def test_sesion_se_bloquea_tras_inactividad(conn):
     session = auth.login("juan", "clave123")
     session.inactivity_timeout = 0
     assert not auth.is_authenticated()
+
+
+def test_recuperar_password_con_respuesta_correcta(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123", "¿Cuál es tu comida favorita?", "Milanesas")
+
+    assert auth.obtener_pregunta_secreta("juan") == "¿Cuál es tu comida favorita?"
+
+    auth.restablecer_password("juan", "milanesas", "claveNueva1")
+    with pytest.raises(AuthError):
+        auth.login("juan", "clave123")
+    session = auth.login("juan", "claveNueva1")
+    assert session.username == "juan"
+
+
+def test_recuperar_password_con_respuesta_incorrecta_falla(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123", "¿Cuál es tu comida favorita?", "Milanesas")
+
+    with pytest.raises(AuthError):
+        auth.restablecer_password("juan", "pizza", "claveNueva1")
+
+
+def test_obtener_pregunta_secreta_usuario_sin_pregunta(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123")
+    assert auth.obtener_pregunta_secreta("juan") is None
