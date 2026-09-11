@@ -2,13 +2,38 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
 from .domain.models import CATEGORIAS_BASE
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent / "migrations"
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent.parent / "kakeibo.db"
+
+def _migrations_dir() -> Path:
+    """Ubicacion de las migraciones SQL (solo lectura).
+
+    Cuando la app corre empaquetada (PyInstaller), los datos agregados con
+    --add-data se extraen a `sys._MEIPASS`, no junto al ejecutable.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent)) / "migrations"
+    return Path(__file__).resolve().parent.parent.parent / "migrations"
+
+
+def _default_db_path() -> Path:
+    """Ubicacion de la base de datos (debe persistir entre ejecuciones).
+
+    Empaquetada como .exe de un solo archivo, `sys._MEIPASS` es una carpeta
+    temporal que se borra al cerrar la app, asi que la base se guarda junto
+    al ejecutable en su lugar.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "kakeibo.db"
+    return Path(__file__).resolve().parent.parent.parent / "kakeibo.db"
+
+
+MIGRATIONS_DIR = _migrations_dir()
+DEFAULT_DB_PATH = _default_db_path()
 
 
 def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
