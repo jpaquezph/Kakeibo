@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import flet as ft
@@ -18,6 +19,26 @@ from .historial_view import build_historial_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
 from .tarjetas_view import build_tarjetas_view
+
+def _elegir_carpeta_backup() -> str | None:
+    """Abre el selector nativo de carpetas de Windows via Tkinter.
+
+    Se usa Tkinter (en vez de ft.FilePicker) porque el cliente de escritorio
+    de Flet en esta version no trae el plugin nativo de seleccion de
+    archivos/carpetas y responde 'Unknown control: FilePicker'.
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        carpeta = filedialog.askdirectory(title="Elegí dónde guardar el backup")
+    finally:
+        root.destroy()
+    return carpeta or None
+
 
 _SECTIONS = [
     ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
@@ -70,15 +91,8 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         on_logout()
 
     async def hacer_backup(_e=None):
-        picker = ft.FilePicker()
-        page.overlay.append(picker)
-        page.update()
-        try:
-            destino_dir = await picker.get_directory_path(dialog_title="Elegí dónde guardar el backup")
-        finally:
-            if picker in page.overlay:
-                page.overlay.remove(picker)
-            page.update()
+        loop = asyncio.get_event_loop()
+        destino_dir = await loop.run_in_executor(None, _elegir_carpeta_backup)
 
         if not destino_dir:
             return  # el usuario cancelo el dialogo
