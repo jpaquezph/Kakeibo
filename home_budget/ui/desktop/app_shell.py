@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import flet as ft
 
 from ...app.auth.service import AuthService
@@ -67,16 +69,29 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         auth.logout()
         on_logout()
 
-    def hacer_backup(_e=None):
+    async def hacer_backup(_e=None):
+        picker = ft.FilePicker()
+        page.overlay.append(picker)
+        page.update()
         try:
-            destino = crear_backup(DEFAULT_DB_PATH, DEFAULT_DB_PATH.parent / "backups")
-            icono, color, mensaje = "check_circle_rounded", theme.INCOME_GREEN, f"Backup creado con éxito en:\n{destino}"
+            destino_dir = await picker.get_directory_path(dialog_title="Elegí dónde guardar el backup")
+        finally:
+            if picker in page.overlay:
+                page.overlay.remove(picker)
+            page.update()
+
+        if not destino_dir:
+            return  # el usuario cancelo el dialogo
+
+        try:
+            destino = crear_backup(DEFAULT_DB_PATH, Path(destino_dir))
+            icono, color, mensaje = ft.Icons.CHECK_CIRCLE_ROUNDED, theme.INCOME_GREEN, f"Backup creado con éxito en:\n{destino}"
         except Exception as exc:
-            icono, color, mensaje = "error_rounded", theme.EXPENSE_RED, f"No se pudo crear el backup:\n{exc}"
+            icono, color, mensaje = ft.Icons.ERROR_ROUNDED, theme.EXPENSE_RED, f"No se pudo crear el backup:\n{exc}"
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Row([ft.Icon(theme.to_icon(icono), color=color), ft.Text("Backup")], spacing=8),
+            title=ft.Row([ft.Icon(icono, color=color), ft.Text("Backup")], spacing=8),
             content=ft.Text(mensaje, size=13, selectable=True),
             actions=[theme.primary_button("Aceptar", lambda e: page.pop_dialog(), color=theme.DASHBOARD_COLOR)],
         )
