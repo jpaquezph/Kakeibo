@@ -35,7 +35,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
         return ft.Container(
             content=ft.Column(
                 [
-                    ft.Icon("credit_card_rounded", color="#FFFFFF", size=22),
+                    ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, color="#FFFFFF", size=22),
                     ft.Text(t.nombre, color="#FFFFFF", weight=ft.FontWeight.BOLD, size=15),
                     ft.Text(f"{t.banco}  ••{t.ultimos_digitos}", color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
                     ft.Text(t.moneda.value, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
@@ -80,7 +80,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                     f"Pagar cuota {proxima.numero_cuota}",
                     lambda e, cid=proxima.id: pagar_cuota(cid),
                     color=theme.TARJETAS_COLOR,
-                    icon="check_circle_outline_rounded",
+                    icon=ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
                 )
             )
         else:
@@ -93,7 +93,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                         [
                             ft.Text(c.concepto, size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, expand=True),
                             ft.Text(c.monto_total.formatted(), size=15, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
-                            ft.IconButton(icon="delete_outline_rounded", icon_color=theme.EXPENSE_RED, icon_size=16, on_click=lambda e, cid=c.id: eliminar_compra(cid)),
+                            ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=theme.EXPENSE_RED, icon_size=16, on_click=lambda e, cid=c.id: eliminar_compra(cid)),
                         ]
                     ),
                     ft.Row(
@@ -146,7 +146,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             modal=True,
             title=ft.Text("Nueva tarjeta"),
             content=ft.Container(ft.Column([nombre_f, banco_f, digitos_f, moneda_dd, error_text], spacing=12, tight=True), width=360),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Crear", guardar, color=theme.TARJETAS_COLOR, icon="check_rounded")],
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
         page.show_dialog(dialog)
 
@@ -195,21 +195,21 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             content=ft.Container(
                 ft.Column(
                     [
-                        ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon="calendar_month_rounded", on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
+                        ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
                         concepto_f, detalle_f, monto_f, cuotas_f, categoria_dd, error_text,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
                 width=400,
             ),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Registrar compra", guardar, color=theme.TARJETAS_COLOR, icon="check_rounded")],
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Registrar compra", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
         page.show_dialog(dialog)
 
     header = ft.Row(
         [
             ft.Text("Tarjetas", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
-            ft.Row([theme.secondary_button("Nueva tarjeta", nueva_tarjeta, icon="add_card_rounded"), theme.primary_button("Nueva compra", nueva_compra, color=theme.TARJETAS_COLOR, icon="add_shopping_cart_rounded")]),
+            ft.Row([theme.secondary_button("Nueva tarjeta", nueva_tarjeta, icon=ft.Icons.ADD_CARD_ROUNDED), theme.primary_button("Nueva compra", nueva_compra, color=theme.TARJETAS_COLOR, icon=ft.Icons.ADD_SHOPPING_CART_ROUNDED)]),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )

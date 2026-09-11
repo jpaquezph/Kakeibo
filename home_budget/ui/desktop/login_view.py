@@ -86,14 +86,14 @@ def build_login_view(page: ft.Page, auth: AuthService, on_success) -> ft.Control
         "Crear cuenta e ingresar" if primer_uso else "Ingresar",
         submit,
         color=theme.DASHBOARD_COLOR,
-        icon="lock_open_rounded",
+        icon=ft.Icons.LOCK_OPEN_ROUNDED,
         width=320,
     )
 
     card_content = ft.Column(
         [
             ft.Container(
-                content=ft.Icon("savings_rounded", size=40, color=theme.DASHBOARD_COLOR),
+                content=ft.Icon(ft.Icons.SAVINGS_ROUNDED, size=40, color=theme.DASHBOARD_COLOR),
                 bgcolor=theme.DASHBOARD_BG,
                 padding=16,
                 border_radius=theme.RADIUS_LG,
@@ -155,14 +155,14 @@ def build_lock_view(page: ft.Page, auth: AuthService, on_unlock) -> ft.Control:
 
     card_content = ft.Column(
         [
-            ft.Icon("lock_rounded", size=40, color=theme.DASHBOARD_COLOR),
+            ft.Icon(ft.Icons.LOCK_ROUNDED, size=40, color=theme.DASHBOARD_COLOR),
             ft.Text("Sesión bloqueada por inactividad", size=18, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Text(f"Ingresá tu contraseña para continuar, {session.username}.", size=13, color=theme.TEXT_SECONDARY),
             ft.Container(height=8),
             password_field,
             error_text,
             ft.Container(height=8),
-            theme.primary_button("Desbloquear", submit, color=theme.DASHBOARD_COLOR, icon="lock_open_rounded", width=320),
+            theme.primary_button("Desbloquear", submit, color=theme.DASHBOARD_COLOR, icon=ft.Icons.LOCK_OPEN_ROUNDED, width=320),
         ],
         spacing=12,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,

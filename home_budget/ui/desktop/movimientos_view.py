@@ -41,7 +41,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             content=ft.Text(f'¿Seguro que querés eliminar "{movimiento.concepto}"?'),
             actions=[
                 theme.secondary_button("Cancelar", cancelar),
-                theme.primary_button("Eliminar", confirmar, color=theme.EXPENSE_RED, icon="delete_outline_rounded"),
+                theme.primary_button("Eliminar", confirmar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED),
             ],
         )
         page.show_dialog(dialog)
@@ -58,8 +58,8 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
 
         tipo_selector = ft.SegmentedButton(
             segments=[
-                ft.Segment(value="ingreso", label=ft.Text("Ingreso"), icon="trending_up_rounded"),
-                ft.Segment(value="egreso", label=ft.Text("Egreso"), icon="trending_down_rounded"),
+                ft.Segment(value="ingreso", label=ft.Text("Ingreso"), icon=ft.Icons.TRENDING_UP_ROUNDED),
+                ft.Segment(value="egreso", label=ft.Text("Egreso"), icon=ft.Icons.TRENDING_DOWN_ROUNDED),
             ],
             selected=[movimiento.tipo.value if es_edicion else "egreso"],
             allow_multiple_selection=False,
@@ -148,7 +148,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                 content=ft.Column(
                     [
                         tipo_selector,
-                        ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon="calendar_month_rounded", on_click=abrir_calendario)]),
+                        ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=abrir_calendario)]),
                         concepto_field,
                         detalle_field,
                         ft.Row([ft.Container(monto_field, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
@@ -165,7 +165,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             ),
             actions=[
                 theme.secondary_button("Cancelar", cancelar),
-                theme.primary_button("Guardar", guardar, color=theme.MOVIMIENTOS_COLOR, icon="check_rounded"),
+                theme.primary_button("Guardar", guardar, color=theme.MOVIMIENTOS_COLOR, icon=ft.Icons.CHECK_ROUNDED),
             ],
         )
         page.show_dialog(dialog)
@@ -173,7 +173,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
     header = ft.Row(
         [
             ft.Text("Movimientos", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
-            theme.primary_button("Nuevo movimiento", nuevo, color=theme.MOVIMIENTOS_COLOR, icon="add_rounded"),
+            theme.primary_button("Nuevo movimiento", nuevo, color=theme.MOVIMIENTOS_COLOR, icon=ft.Icons.ADD_ROUNDED),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )

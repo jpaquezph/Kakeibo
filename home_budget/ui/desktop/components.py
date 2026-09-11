@@ -19,7 +19,7 @@ def stat_card(title: str, value: Money, icon: str, is_income: bool | None = None
             ft.Row(
                 [
                     ft.Container(
-                        content=ft.Icon(icon, color=color, size=18),
+                        content=ft.Icon(theme.to_icon(icon), color=color, size=18),
                         bgcolor=bg,
                         padding=8,
                         border_radius=theme.RADIUS_SM,
@@ -38,7 +38,7 @@ def stat_card(title: str, value: Money, icon: str, is_income: bool | None = None
 def category_chip(nombre: str, color: str, icono: str) -> ft.Container:
     return ft.Container(
         content=ft.Row(
-            [ft.Icon(icono, size=13, color=color), ft.Text(nombre, size=11, color=color, weight=ft.FontWeight.W_600)],
+            [ft.Icon(theme.to_icon(icono), size=13, color=color), ft.Text(nombre, size=11, color=color, weight=ft.FontWeight.W_600)],
             spacing=4,
             tight=True,
         ),
@@ -52,7 +52,7 @@ def empty_state(mensaje: str, icon: str = "inbox_rounded") -> ft.Container:
     return ft.Container(
         content=ft.Column(
             [
-                ft.Icon(icon, size=40, color=theme.TEXT_MUTED),
+                ft.Icon(theme.to_icon(icon), size=40, color=theme.TEXT_MUTED),
                 ft.Text(mensaje, color=theme.TEXT_MUTED, size=13),
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -72,7 +72,7 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
     fila = ft.Row(
         [
             ft.Container(
-                content=ft.Icon("arrow_upward_rounded" if es_ingreso else "arrow_downward_rounded", color=color, size=16),
+                content=ft.Icon(ft.Icons.ARROW_UPWARD_ROUNDED if es_ingreso else ft.Icons.ARROW_DOWNWARD_ROUNDED, color=color, size=16),
                 bgcolor=bg,
                 padding=10,
                 border_radius=theme.RADIUS_SM,
@@ -94,8 +94,8 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
                 expand=True,
             ),
             ft.Text(f"{signo} {movimiento.monto.formatted()}", size=15, weight=ft.FontWeight.BOLD, color=color),
-            *([ft.IconButton(icon="edit_rounded", icon_size=16, icon_color=theme.TEXT_MUTED, on_click=lambda e: on_edit(movimiento))] if on_edit else []),
-            *([ft.IconButton(icon="delete_outline_rounded", icon_size=16, icon_color=theme.EXPENSE_RED, on_click=lambda e: on_delete(movimiento))] if on_delete else []),
+            *([ft.IconButton(icon=ft.Icons.EDIT_ROUNDED, icon_size=16, icon_color=theme.TEXT_MUTED, on_click=lambda e: on_edit(movimiento))] if on_edit else []),
+            *([ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_size=16, icon_color=theme.EXPENSE_RED, on_click=lambda e: on_delete(movimiento))] if on_delete else []),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,

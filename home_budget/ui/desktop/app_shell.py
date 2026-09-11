@@ -67,7 +67,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Row([ft.Icon(icono, color=color), ft.Text("Backup")], spacing=8),
+            title=ft.Row([ft.Icon(theme.to_icon(icono), color=color), ft.Text("Backup")], spacing=8),
             content=ft.Text(mensaje, size=13, selectable=True),
             actions=[theme.primary_button("Aceptar", lambda e: page.pop_dialog(), color=theme.DASHBOARD_COLOR)],
         )
@@ -86,7 +86,7 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_ba
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon("savings_rounded", color=theme.DASHBOARD_COLOR, size=26),
+                            ft.Icon(ft.Icons.SAVINGS_ROUNDED, color=theme.DASHBOARD_COLOR, size=26),
                             ft.Text("Kakeibo", size=20, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
                         ],
                         spacing=8,
@@ -98,7 +98,7 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_ba
                 ft.Container(
                     content=ft.TextButton(
                         "Hacer backup",
-                        icon="backup_rounded",
+                        icon=ft.Icons.BACKUP_ROUNDED,
                         on_click=hacer_backup,
                         style=ft.ButtonStyle(color=theme.TEXT_SECONDARY),
                     ),
@@ -107,8 +107,8 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_ba
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Row([ft.Icon("account_circle_rounded", color=theme.TEXT_SECONDARY, size=18), ft.Text(auth.session.username, size=13, color=theme.TEXT_SECONDARY)], spacing=6),
-                            ft.TextButton("Cerrar sesión", icon="logout_rounded", on_click=salir, style=ft.ButtonStyle(color=theme.EXPENSE_RED)),
+                            ft.Row([ft.Icon(ft.Icons.ACCOUNT_CIRCLE_ROUNDED, color=theme.TEXT_SECONDARY, size=18), ft.Text(auth.session.username, size=13, color=theme.TEXT_SECONDARY)], spacing=6),
+                            ft.TextButton("Cerrar sesión", icon=ft.Icons.LOGOUT_ROUNDED, on_click=salir, style=ft.ButtonStyle(color=theme.EXPENSE_RED)),
                         ],
                         spacing=8,
                     ),
@@ -131,7 +131,7 @@ def _nav_button(key, icon, label, color, bg, is_active, on_click):
     return ft.Container(
         content=ft.Row(
             [
-                ft.Icon(icon, color=color if is_active else theme.TEXT_MUTED, size=18),
+                ft.Icon(theme.to_icon(icon), color=color if is_active else theme.TEXT_MUTED, size=18),
                 ft.Text(label, size=14, color=color if is_active else theme.TEXT_SECONDARY, weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.NORMAL),
             ],
             spacing=12,

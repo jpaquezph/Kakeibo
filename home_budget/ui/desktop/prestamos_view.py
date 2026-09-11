@@ -35,10 +35,10 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
                     f"Pagar cuota {proxima.numero_cuota} ({proxima.monto.formatted()})",
                     lambda e, cid=proxima.id: pagar_cuota(cid),
                     color=theme.PRESTAMOS_COLOR,
-                    icon="check_circle_outline_rounded",
+                    icon=ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED,
                 )
             )
-        acciones.append(ft.IconButton(icon="delete_outline_rounded", icon_color=theme.EXPENSE_RED, icon_size=18, on_click=lambda e, pid=p.id: eliminar(pid)))
+        acciones.append(ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=theme.EXPENSE_RED, icon_size=18, on_click=lambda e, pid=p.id: eliminar(pid)))
 
         return theme.card(
             ft.Column(
@@ -81,7 +81,7 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
             modal=True,
             title=ft.Text("Eliminar préstamo"),
             content=ft.Text("¿Seguro que querés eliminar este préstamo y todas sus cuotas?"),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Eliminar", confirmar, color=theme.EXPENSE_RED, icon="delete_outline_rounded")],
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Eliminar", confirmar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED)],
         )
         page.show_dialog(dialog)
 
@@ -124,21 +124,21 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
             content=ft.Container(
                 ft.Column(
                     [
-                        ft.Row([ft.Text("Fecha de inicio:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon="calendar_month_rounded", on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
+                        ft.Row([ft.Text("Fecha de inicio:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
                         nombre_f, detalle_f, monto_f, moneda_dd, cuotas_f, error_text,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
                 width=400,
             ),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Registrar préstamo", guardar, color=theme.PRESTAMOS_COLOR, icon="check_rounded")],
+            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Registrar préstamo", guardar, color=theme.PRESTAMOS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
         page.show_dialog(dialog)
 
     header = ft.Row(
         [
             ft.Text("Préstamos", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
-            theme.primary_button("Nuevo préstamo", nuevo_prestamo, color=theme.PRESTAMOS_COLOR, icon="add_rounded"),
+            theme.primary_button("Nuevo préstamo", nuevo_prestamo, color=theme.PRESTAMOS_COLOR, icon=ft.Icons.ADD_ROUNDED),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )

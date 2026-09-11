@@ -63,7 +63,7 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService) -> 
         tarjeta_items.append(
             ft.Row(
                 [
-                    ft.Icon("credit_card_rounded", size=16, color=theme.TARJETAS_COLOR),
+                    ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, size=16, color=theme.TARJETAS_COLOR),
                     ft.Text(tt.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True),
                     ft.Text(tt.total_pendiente.formatted(), size=13, weight=ft.FontWeight.W_600, color=theme.TARJETAS_COLOR),
                 ],

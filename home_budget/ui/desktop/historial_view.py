@@ -103,16 +103,16 @@ def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, c
                 ft.Text("Filtros", size=14, weight=ft.FontWeight.BOLD, color=theme.HISTORIAL_COLOR),
                 ft.Row(
                     [
-                        ft.Column([ft.Text("Desde", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_desde_text, ft.IconButton(icon="calendar_month_rounded", icon_size=16, on_click=lambda e: (setattr(desde_picker, "open", True), page.update()))])]),
-                        ft.Column([ft.Text("Hasta", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_hasta_text, ft.IconButton(icon="calendar_month_rounded", icon_size=16, on_click=lambda e: (setattr(hasta_picker, "open", True), page.update()))])]),
+                        ft.Column([ft.Text("Desde", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_desde_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(desde_picker, "open", True), page.update()))])]),
+                        ft.Column([ft.Text("Hasta", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_hasta_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(hasta_picker, "open", True), page.update()))])]),
                         tipo_dd, categoria_dd, moneda_dd, estado_dd, concepto_field,
                     ],
                     spacing=12, wrap=True, vertical_alignment=ft.CrossAxisAlignment.END,
                 ),
                 ft.Row(
                     [
-                        theme.primary_button("Aplicar filtros", aplicar_filtros, color=theme.HISTORIAL_COLOR, icon="filter_alt_rounded"),
-                        theme.secondary_button("Limpiar", limpiar_filtros, icon="close_rounded"),
+                        theme.primary_button("Aplicar filtros", aplicar_filtros, color=theme.HISTORIAL_COLOR, icon=ft.Icons.FILTER_ALT_ROUNDED),
+                        theme.secondary_button("Limpiar", limpiar_filtros, icon=ft.Icons.CLOSE_ROUNDED),
                     ],
                     spacing=10,
                 ),

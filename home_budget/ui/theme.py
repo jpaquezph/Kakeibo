@@ -50,6 +50,15 @@ def app_theme() -> ft.Theme:
     )
 
 
+def to_icon(name):
+    """Convierte un nombre de icono en snake_case (ej: 'savings_rounded') al
+    miembro real de ft.Icons. Los strings sueltos no se renderizan en esta
+    version de Flet y rompen el layout completo del contenedor padre."""
+    if not isinstance(name, str):
+        return name
+    return getattr(ft.Icons, name.upper(), ft.Icons.CIRCLE)
+
+
 def pad(horizontal: int = 0, vertical: int = 0) -> ft.padding.Padding:
     return ft.padding.Padding(left=horizontal, right=horizontal, top=vertical, bottom=vertical)
 
@@ -94,7 +103,7 @@ def card(content: ft.Control, color: str | None = None, bg: str = SURFACE, paddi
 def section_pill(text: str, color: str, bg: str, icon: str | None = None) -> ft.Container:
     row_controls = []
     if icon:
-        row_controls.append(ft.Icon(icon, color=color, size=16))
+        row_controls.append(ft.Icon(to_icon(icon), color=color, size=16))
     row_controls.append(ft.Text(text, color=color, weight=ft.FontWeight.W_600, size=12))
     return ft.Container(
         content=ft.Row(row_controls, spacing=4, tight=True),
@@ -107,7 +116,7 @@ def section_pill(text: str, color: str, bg: str, icon: str | None = None) -> ft.
 def primary_button(text: str, on_click, color: str = DASHBOARD_COLOR, icon: str | None = None, width: int | None = None) -> ft.ElevatedButton:
     return ft.ElevatedButton(
         content=text,
-        icon=icon,
+        icon=to_icon(icon),
         icon_color="#FFFFFF",
         color="#FFFFFF",
         bgcolor=color,
@@ -124,7 +133,7 @@ def primary_button(text: str, on_click, color: str = DASHBOARD_COLOR, icon: str 
 def secondary_button(text: str, on_click, color: str = TEXT_SECONDARY, icon: str | None = None) -> ft.OutlinedButton:
     return ft.OutlinedButton(
         content=text,
-        icon=icon,
+        icon=to_icon(icon),
         icon_color=color,
         on_click=on_click,
         style=ft.ButtonStyle(
