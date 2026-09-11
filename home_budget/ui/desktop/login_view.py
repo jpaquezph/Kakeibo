@@ -40,7 +40,7 @@ def _campo(label, **kwargs) -> ft.TextField:
     )
 
 
-def _vista_signup(page, auth, on_success, mostrar) -> ft.Control:
+def _vista_signup(page, auth, on_success, mostrar, permitir_volver: bool = False) -> ft.Control:
     username_field = _campo("Usuario", autofocus=True)
     password_field = _campo("Contraseña", password=True, can_reveal_password=True)
     confirm_field = _campo("Confirmar contraseña", password=True, can_reveal_password=True)
@@ -83,6 +83,9 @@ def _vista_signup(page, auth, on_success, mostrar) -> ft.Control:
     for campo in (password_field, confirm_field, respuesta_field):
         campo.on_submit = submit
 
+    def volver(_e=None):
+        mostrar(_vista_login(page, auth, on_success, mostrar))
+
     return ft.Column(
         [
             ft.Container(
@@ -90,7 +93,7 @@ def _vista_signup(page, auth, on_success, mostrar) -> ft.Control:
                 bgcolor=theme.DASHBOARD_BG, padding=16, border_radius=theme.RADIUS_LG,
             ),
             ft.Container(height=8),
-            ft.Text("Bienvenido a Kakeibo", size=26, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
+            ft.Text("Bienvenido a Kakeibo" if not permitir_volver else "Crear un usuario nuevo", size=26, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Text("Creá tu usuario para empezar a llevar tus cuentas.", size=14, color=theme.TEXT_SECONDARY),
             ft.Container(height=16),
             username_field,
@@ -103,6 +106,7 @@ def _vista_signup(page, auth, on_success, mostrar) -> ft.Control:
             error_text,
             ft.Container(height=8),
             theme.primary_button("Crear cuenta e ingresar", submit, color=theme.DASHBOARD_COLOR, icon=ft.Icons.LOCK_OPEN_ROUNDED, width=320),
+            *([ft.TextButton("Volver a iniciar sesión", on_click=volver, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY))] if permitir_volver else []),
         ],
         width=360,
         spacing=12,
@@ -135,6 +139,12 @@ def _vista_login(page, auth, on_success, mostrar) -> ft.Control:
     def ir_a_recuperar(_e=None):
         mostrar(_vista_recuperar_paso1(page, auth, mostrar))
 
+    def ir_a_crear_usuario(_e=None):
+        mostrar(_vista_signup(page, auth, on_success, mostrar, permitir_volver=True))
+
+    def ir_a_eliminar_usuario(_e=None):
+        mostrar(_vista_eliminar_usuario(page, auth, mostrar))
+
     return ft.Column(
         [
             ft.Container(
@@ -151,7 +161,86 @@ def _vista_login(page, auth, on_success, mostrar) -> ft.Control:
             ft.Container(height=8),
             theme.primary_button("Ingresar", submit, color=theme.DASHBOARD_COLOR, icon=ft.Icons.LOCK_OPEN_ROUNDED, width=320),
             ft.TextButton("¿Olvidaste tu contraseña?", on_click=ir_a_recuperar, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY)),
+            ft.Divider(height=1, color=theme.BORDER),
+            ft.Text("Gestionar usuarios", size=11, color=theme.TEXT_MUTED),
+            ft.Row(
+                [
+                    ft.TextButton("Crear usuario nuevo", on_click=ir_a_crear_usuario, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY)),
+                    ft.TextButton("Eliminar un usuario", on_click=ir_a_eliminar_usuario, style=ft.ButtonStyle(color=theme.EXPENSE_RED)),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                wrap=True,
+            ),
         ],
+        width=360,
+        spacing=12,
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
+
+def _vista_eliminar_usuario(page, auth, mostrar) -> ft.Control:
+    usuarios = auth.listar_usernames()
+    usuario_dd = ft.Dropdown(
+        label="Usuario a eliminar",
+        options=[ft.dropdown.Option(u) for u in usuarios],
+        value=usuarios[0] if usuarios else None,
+        filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+    )
+    password_field = _campo("Contraseña de ese usuario", password=True, can_reveal_password=True)
+    error_text = ft.Text("", color=theme.EXPENSE_RED, size=13, visible=False)
+
+    def volver(_e=None):
+        mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+
+    def confirmar_eliminar(_e=None):
+        def confirmar(_e2):
+            try:
+                auth.eliminar_usuario(usuario_dd.value or "", password_field.value or "")
+            except AuthError as exc:
+                page.pop_dialog()
+                error_text.value = str(exc)
+                error_text.visible = True
+                page.update()
+                return
+            page.pop_dialog()
+            mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eliminar usuario"),
+            content=ft.Text(f'¿Seguro que querés eliminar el usuario "{usuario_dd.value}"? Esta acción no se puede deshacer.'),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Sí, eliminar", confirmar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED),
+            ],
+        )
+        page.show_dialog(dialog)
+
+    password_field.on_submit = confirmar_eliminar
+
+    if not usuarios:
+        contenido = [
+            ft.Icon(ft.Icons.PERSON_OFF_ROUNDED, size=40, color=theme.TEXT_MUTED),
+            ft.Text("No hay usuarios para eliminar.", size=14, color=theme.TEXT_SECONDARY),
+            ft.Container(height=8),
+            ft.TextButton("Volver a iniciar sesión", on_click=volver, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY)),
+        ]
+    else:
+        contenido = [
+            ft.Icon(ft.Icons.PERSON_OFF_ROUNDED, size=40, color=theme.EXPENSE_RED),
+            ft.Text("Eliminar usuario", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
+            ft.Text("Se necesita la contraseña de ese usuario para confirmar.", size=13, color=theme.TEXT_SECONDARY),
+            ft.Container(height=8),
+            usuario_dd,
+            password_field,
+            error_text,
+            ft.Container(height=8),
+            theme.primary_button("Eliminar usuario", confirmar_eliminar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED, width=320),
+            ft.TextButton("Cancelar", on_click=volver, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY)),
+        ]
+
+    return ft.Column(
+        contenido,
         width=360,
         spacing=12,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,

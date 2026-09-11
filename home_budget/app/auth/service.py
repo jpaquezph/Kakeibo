@@ -71,6 +71,9 @@ class AuthService:
         row = self._conn.execute("SELECT COUNT(*) AS n FROM usuarios").fetchone()
         return row["n"] > 0
 
+    def listar_usernames(self) -> list[str]:
+        return [row["username"] for row in self._conn.execute("SELECT username FROM usuarios ORDER BY username")]
+
     def crear_usuario(self, username: str, password: str, pregunta_secreta: str = "", respuesta_secreta: str = "") -> int:
         username = username.strip()
         if not username:
@@ -127,6 +130,27 @@ class AuthService:
             (nuevo_hash, nuevo_salt, row["id"]),
         )
         self._conn.commit()
+
+    def eliminar_usuario(self, username: str, password: str) -> None:
+        """Elimina un usuario (credencial de acceso) previa verificacion de su
+        contrasena. No borra los datos financieros: son compartidos por la
+        instalacion, no pertenecen a un usuario en particular."""
+        row = self._conn.execute(
+            "SELECT id, password_hash, salt FROM usuarios WHERE username = ?",
+            (username.strip(),),
+        ).fetchone()
+        if row is None:
+            raise AuthError("Usuario o contrasena incorrectos")
+        candidate_hash = _hash_password(password, row["salt"])
+        if not hmac.compare_digest(candidate_hash, row["password_hash"]):
+            raise AuthError("Usuario o contrasena incorrectos")
+
+        self._conn.execute("DELETE FROM sesiones WHERE usuario_id = ?", (row["id"],))
+        self._conn.execute("DELETE FROM usuarios WHERE id = ?", (row["id"],))
+        self._conn.commit()
+
+        if self.session is not None and self.session.usuario_id == row["id"]:
+            self.session = None
 
     def login(self, username: str, password: str) -> Session:
         row = self._conn.execute(

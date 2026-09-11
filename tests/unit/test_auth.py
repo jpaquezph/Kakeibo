@@ -73,3 +73,40 @@ def test_obtener_pregunta_secreta_usuario_sin_pregunta(conn):
     auth = AuthService(conn)
     auth.crear_usuario("juan", "clave123")
     assert auth.obtener_pregunta_secreta("juan") is None
+
+
+def test_eliminar_usuario_con_password_correcta(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123")
+    auth.crear_usuario("maria", "clave456")
+
+    auth.eliminar_usuario("juan", "clave123")
+
+    assert auth.listar_usernames() == ["maria"]
+    with pytest.raises(AuthError):
+        auth.login("juan", "clave123")
+
+
+def test_eliminar_usuario_con_password_incorrecta_falla(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123")
+
+    with pytest.raises(AuthError):
+        auth.eliminar_usuario("juan", "otraclave")
+    assert auth.listar_usernames() == ["juan"]
+
+
+def test_eliminar_usuario_inexistente_falla(conn):
+    auth = AuthService(conn)
+    with pytest.raises(AuthError):
+        auth.eliminar_usuario("nadie", "clave123")
+
+
+def test_eliminar_usuario_logueado_invalida_su_sesion(conn):
+    auth = AuthService(conn)
+    auth.crear_usuario("juan", "clave123")
+    auth.login("juan", "clave123")
+
+    auth.eliminar_usuario("juan", "clave123")
+
+    assert auth.session is None
