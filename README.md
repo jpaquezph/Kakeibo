@@ -46,19 +46,40 @@ main.py             -> punto de entrada
 
 ## Empaquetado (generar un instalador para Windows)
 
-Requiere `pyinstaller` (en el venv) e [Inno Setup 6](https://jrsoftware.org/isdl.php)
-instalado en la máquina que compila.
+Se usa `flet build windows` (no `flet pack`): `flet pack` empaqueta con
+PyInstaller el cliente de escritorio "full" de Flet, que incluye soporte de
+video (media_kit) y depende de Windows Media Foundation
+(`MFReadWrite.dll`) — ausente por defecto en ediciones "N"/"KN" de Windows y
+en algunas instalaciones tipo Server, lo que rompe la app con el error
+`"no se encontró MFReadWrite.dll"`. `flet build windows` compila un cliente
+propio con Flutter que no incluye esa dependencia.
+
+Requiere, en la máquina que compila:
+
+- [Flutter SDK](https://docs.flutter.dev/get-started/install/windows) (canal stable) en el PATH.
+- Visual Studio Build Tools 2022 con el workload "Desktop development with C++"
+  (`winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`).
+- Modo de desarrollador de Windows activado (Configuración → Privacidad y
+  seguridad → Para desarrolladores → Modo de desarrollador), necesario para
+  que Flutter pueda crear symlinks al compilar los plugins.
+- [Inno Setup 6](https://jrsoftware.org/isdl.php).
 
 ```bash
-.venv\Scripts\pip install pyinstaller
+flutter doctor          # verificar que Visual Studio se detecta OK
 
-.venv\Scripts\flet pack main.py -n Kakeibo --product-name "Kakeibo" ^
-  --company-name "Kakeibo" --add-data "migrations;migrations" ^
-  --hidden-import tkinter --hidden-import tkinter.filedialog -y
+.venv\Scripts\flet build windows --product "Kakeibo" --org "com.kakeibo" ^
+  --company "Kakeibo" --yes --no-rich-output ^
+  --exclude .venv .git .claude .pytest_cache backups dist installer packaging ^
+            Markdowns tests "Kakeibo-Windows.zip" "Kakeibo.spec" "kakeibo.db" ^
+            "kakeibo_debug.log" "README.md" "requirements.txt" "pytest.ini" ^
+            ".gitignore" "build"
 ```
 
-Esto genera `dist\Kakeibo.exe` (un solo archivo, autocontenido — no necesita
-Python ni internet en la máquina de destino). Después, compilar el instalador:
+(El `--exclude` es importante: sin él, `flet build` copia *toda* la carpeta
+del proyecto tal cual, incluyendo `.venv` y `.git`.)
+
+Esto genera `build\windows\` (una carpeta, no un único .exe — son varias DLLs
+de Flutter + el ejecutable). Después, compilar el instalador:
 
 ```bash
 "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" packaging\kakeibo.iss
