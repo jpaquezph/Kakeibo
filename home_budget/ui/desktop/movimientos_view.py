@@ -11,6 +11,11 @@ from ...app.services.movimientos import MovimientoService
 from .. import theme
 from . import components
 
+_COLORES_CATEGORIA_NUEVA = [
+    theme.MOVIMIENTOS_COLOR, theme.TARJETAS_COLOR, theme.PRESTAMOS_COLOR,
+    theme.HISTORIAL_COLOR, theme.DASHBOARD_COLOR, "#7CB342", "#8D6E63", "#5C6BC0",
+]
+
 
 def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService, categoria_repo: CategoriaRepository) -> ft.Control:
     categorias = categoria_repo.listar()
@@ -52,8 +57,12 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
     def nuevo(_e=None):
         abrir_formulario(None)
 
+    def categorias_de(tipo: TipoMovimiento) -> list:
+        return [c for c in categorias if c.tipo == tipo]
+
     def abrir_formulario(movimiento: Movimiento | None):
         es_edicion = movimiento is not None
+        tipo_inicial = movimiento.tipo if es_edicion else TipoMovimiento.EGRESO
         fecha_elegida = {"value": movimiento.fecha if es_edicion else date.today()}
 
         tipo_selector = ft.SegmentedButton(
@@ -61,7 +70,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                 ft.Segment(value="ingreso", label=ft.Text("Ingreso"), icon=ft.Icons.TRENDING_UP_ROUNDED),
                 ft.Segment(value="egreso", label=ft.Text("Egreso"), icon=ft.Icons.TRENDING_DOWN_ROUNDED),
             ],
-            selected=[movimiento.tipo.value if es_edicion else "egreso"],
+            selected=[tipo_inicial.value],
             allow_multiple_selection=False,
             allow_empty_selection=False,
         )
@@ -89,11 +98,14 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             options=[ft.dropdown.Option(m.value) for m in Moneda],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
+
+        opciones_iniciales = categorias_de(tipo_inicial)
         categoria_dd = ft.Dropdown(
             label="Categoría",
-            value=str(movimiento.categoria_id) if es_edicion else (str(categorias[0].id) if categorias else None),
-            options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias],
+            value=str(movimiento.categoria_id) if es_edicion else (str(opciones_iniciales[0].id) if opciones_iniciales else None),
+            options=[ft.dropdown.Option(str(c.id), c.nombre) for c in opciones_iniciales],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+            expand=True,
         )
         estado_dd = ft.Dropdown(
             label="Estado",
@@ -101,15 +113,77 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             options=[ft.dropdown.Option(e.value) for e in EstadoMovimiento],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
-        fijo_check = ft.Checkbox(label="Es un gasto fijo", value=movimiento.fijo if es_edicion else False)
+        fijo_check = ft.Checkbox(label="Es un gasto fijo", value=movimiento.fijo if es_edicion else False, visible=tipo_inicial == TipoMovimiento.EGRESO)
+
+        nueva_categoria_field = ft.TextField(
+            label="Nombre de la categoría nueva", filled=True, bgcolor=theme.SURFACE_ALT,
+            border_radius=theme.RADIUS_SM, border_color=theme.BORDER, dense=True,
+        )
+        nueva_categoria_row = ft.Row([nueva_categoria_field], spacing=8, visible=False)
 
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
+
+        def tipo_actual() -> TipoMovimiento:
+            return TipoMovimiento(next(iter(tipo_selector.selected)))
+
+        def on_tipo_change(_e):
+            tipo = tipo_actual()
+            opciones = categorias_de(tipo)
+            categoria_dd.options = [ft.dropdown.Option(str(c.id), c.nombre) for c in opciones]
+            categoria_dd.value = str(opciones[0].id) if opciones else None
+            fijo_check.visible = tipo == TipoMovimiento.EGRESO
+            if tipo == TipoMovimiento.INGRESO:
+                fijo_check.value = False
+            nueva_categoria_row.visible = False
+            nueva_categoria_field.value = ""
+            page.update()
+
+        tipo_selector.on_change = on_tipo_change
+
+        def alternar_nueva_categoria(_e):
+            nueva_categoria_row.visible = not nueva_categoria_row.visible
+            page.update()
+
+        def crear_categoria(_e):
+            nombre = (nueva_categoria_field.value or "").strip()
+            if not nombre:
+                return
+            tipo = tipo_actual()
+            color = _COLORES_CATEGORIA_NUEVA[len(categorias) % len(_COLORES_CATEGORIA_NUEVA)]
+            try:
+                nueva = categoria_repo.crear(nombre, color, "label_rounded", tipo)
+            except ValueError as exc:
+                error_text.value = str(exc)
+                error_text.visible = True
+                page.update()
+                return
+            categorias.append(nueva)
+            opciones = categorias_de(tipo)
+            categoria_dd.options = [ft.dropdown.Option(str(c.id), c.nombre) for c in opciones]
+            categoria_dd.value = str(nueva.id)
+            nueva_categoria_field.value = ""
+            nueva_categoria_row.visible = False
+            error_text.visible = False
+            page.update()
+
+        categoria_row = ft.Row(
+            [
+                categoria_dd,
+                ft.IconButton(icon=ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color=theme.MOVIMIENTOS_COLOR, tooltip="Nueva categoría", on_click=alternar_nueva_categoria),
+            ],
+            spacing=4,
+        )
+        nueva_categoria_row.controls.append(
+            ft.IconButton(icon=ft.Icons.CHECK_CIRCLE_ROUNDED, icon_color=theme.INCOME_GREEN, tooltip="Crear categoría", on_click=crear_categoria)
+        )
 
         def guardar(_e):
             try:
                 monto = Money.from_decimal((monto_field.value or "0").replace(",", "."), moneda_dd.value)
+                if not categoria_dd.value:
+                    raise ValueError("Elegí o creá una categoría")
                 if es_edicion:
-                    movimiento.tipo = TipoMovimiento(next(iter(tipo_selector.selected)))
+                    movimiento.tipo = tipo_actual()
                     movimiento.fecha = fecha_elegida["value"]
                     movimiento.concepto = concepto_field.value or ""
                     movimiento.detalle = detalle_field.value or ""
@@ -120,7 +194,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                     movimiento_service.editar(movimiento)
                 else:
                     movimiento_service.registrar(
-                        tipo=TipoMovimiento(next(iter(tipo_selector.selected))),
+                        tipo=tipo_actual(),
                         fecha=fecha_elegida["value"],
                         concepto=concepto_field.value or "",
                         detalle=detalle_field.value or "",
@@ -152,7 +226,8 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                         concepto_field,
                         detalle_field,
                         ft.Row([ft.Container(monto_field, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
-                        categoria_dd,
+                        categoria_row,
+                        nueva_categoria_row,
                         estado_dd,
                         fijo_check,
                         error_text,

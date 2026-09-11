@@ -25,17 +25,22 @@ class EstadoPrestamo(str, Enum):
 
 
 CATEGORIAS_BASE: list[dict] = [
-    {"nombre": "Préstamos", "color": "#9C3D63", "icono": "account_balance"},
-    {"nombre": "Comida", "color": "#EB6834", "icono": "restaurant"},
-    {"nombre": "Farmacia", "color": "#E87BA4", "icono": "local_pharmacy"},
-    {"nombre": "Mascotas", "color": "#C98500", "icono": "pets"},
-    {"nombre": "Salidas", "color": "#4A3AA7", "icono": "celebration"},
-    {"nombre": "Casa", "color": "#1BAF7A", "icono": "home"},
-    {"nombre": "Otros", "color": "#898781", "icono": "category"},
-    {"nombre": "Servicios esenciales", "color": "#2A78D6", "icono": "bolt"},
-    {"nombre": "Servicios no esenciales", "color": "#6DA7EC", "icono": "tv"},
-    {"nombre": "Auto", "color": "#EDA100", "icono": "directions_car"},
-    {"nombre": "Tarjeta de crédito", "color": "#E34948", "icono": "credit_card"},
+    {"nombre": "Préstamos", "color": "#9C3D63", "icono": "account_balance", "tipo": "egreso"},
+    {"nombre": "Comida", "color": "#EB6834", "icono": "restaurant", "tipo": "egreso"},
+    {"nombre": "Farmacia", "color": "#E87BA4", "icono": "local_pharmacy", "tipo": "egreso"},
+    {"nombre": "Mascotas", "color": "#C98500", "icono": "pets", "tipo": "egreso"},
+    {"nombre": "Salidas", "color": "#4A3AA7", "icono": "celebration", "tipo": "egreso"},
+    {"nombre": "Casa", "color": "#1BAF7A", "icono": "home", "tipo": "egreso"},
+    {"nombre": "Otros", "color": "#898781", "icono": "category", "tipo": "egreso"},
+    {"nombre": "Servicios esenciales", "color": "#2A78D6", "icono": "bolt", "tipo": "egreso"},
+    {"nombre": "Servicios no esenciales", "color": "#6DA7EC", "icono": "tv", "tipo": "egreso"},
+    {"nombre": "Auto", "color": "#EDA100", "icono": "directions_car", "tipo": "egreso"},
+    {"nombre": "Tarjeta de crédito", "color": "#E34948", "icono": "credit_card", "tipo": "egreso"},
+    {"nombre": "Sueldo", "color": "#1E8E4A", "icono": "payments", "tipo": "ingreso"},
+    {"nombre": "Venta", "color": "#16A34A", "icono": "sell", "tipo": "ingreso"},
+    {"nombre": "Extra", "color": "#4CAF50", "icono": "add_circle", "tipo": "ingreso"},
+    {"nombre": "Regalo", "color": "#2E7D32", "icono": "card_giftcard", "tipo": "ingreso"},
+    {"nombre": "Otros ingresos", "color": "#66BB6A", "icono": "more_horiz", "tipo": "ingreso"},
 ]
 
 
@@ -54,6 +59,7 @@ class Categoria:
     nombre: str
     color: str
     icono: str
+    tipo: TipoMovimiento = TipoMovimiento.EGRESO
 
 
 @dataclass(slots=True)

@@ -19,11 +19,19 @@ def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Crea el esquema (si no existe) y siembra las categorias base."""
+    """Crea el esquema (si no existe), aplica migraciones incrementales y siembra las categorias base."""
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
         conn.executescript(migration.read_text(encoding="utf-8"))
+    _ensure_categoria_tipo_column(conn)
     _seed_categorias(conn)
     conn.commit()
+
+
+def _ensure_categoria_tipo_column(conn: sqlite3.Connection) -> None:
+    """Agrega la columna 'tipo' a categorias si la base es de una version anterior."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(categorias)")}
+    if "tipo" not in columnas:
+        conn.execute("ALTER TABLE categorias ADD COLUMN tipo TEXT NOT NULL DEFAULT 'egreso'")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:
@@ -31,8 +39,8 @@ def _seed_categorias(conn: sqlite3.Connection) -> None:
     for cat in CATEGORIAS_BASE:
         if cat["nombre"] not in existentes:
             conn.execute(
-                "INSERT INTO categorias (nombre, color, icono) VALUES (?, ?, ?)",
-                (cat["nombre"], cat["color"], cat["icono"]),
+                "INSERT INTO categorias (nombre, color, icono, tipo) VALUES (?, ?, ?, ?)",
+                (cat["nombre"], cat["color"], cat["icono"], cat["tipo"]),
             )
 
 

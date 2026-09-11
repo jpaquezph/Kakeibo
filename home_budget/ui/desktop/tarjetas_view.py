@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 import flet as ft
 
+from ...app.domain.models import TipoMovimiento
 from ...app.domain.money import Money, Moneda
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.tarjetas import TarjetaService
@@ -12,7 +13,7 @@ from . import components
 
 
 def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categoria_repo: CategoriaRepository) -> ft.Control:
-    categorias = categoria_repo.listar()
+    categorias = categoria_repo.listar(TipoMovimiento.EGRESO)
     estado = {"tarjeta_id": None}
 
     tarjetas_row = ft.Row(spacing=12, wrap=True)

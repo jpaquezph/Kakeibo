@@ -12,6 +12,17 @@ def _categoria_id(conn, nombre="Tarjeta de crédito"):
     return cats[nombre]
 
 
+def test_crear_tarjeta_con_moneda_como_string(conn):
+    """Regresion: el dropdown de la UI entrega la moneda como string plano
+    (ej. 'ARS'), no como Moneda. El servicio debe normalizarlo igual."""
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", "ARS")
+
+    assert tarjeta.moneda == Moneda.ARS
+    recargada = service.listar_tarjetas()[0]
+    assert recargada.moneda == Moneda.ARS
+
+
 def test_tarjetas_multiples_son_independientes(conn):
     service = TarjetaService(conn)
     visa = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)

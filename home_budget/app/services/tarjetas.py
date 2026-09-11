@@ -5,7 +5,7 @@ from datetime import date
 
 from ..domain.dates import add_months
 from ..domain.models import Compra, CuotaCompra, Tarjeta
-from ..domain.money import Money, split_in_installments
+from ..domain.money import Money, Moneda, split_in_installments
 from ..repositories.tarjetas import CompraRepository, TarjetaRepository
 
 
@@ -16,7 +16,7 @@ class TarjetaService:
 
     # Tarjetas
     def crear_tarjeta(self, nombre: str, banco: str, ultimos_digitos: str, moneda) -> Tarjeta:
-        tarjeta = Tarjeta(id=None, nombre=nombre, banco=banco, ultimos_digitos=ultimos_digitos, moneda=moneda)
+        tarjeta = Tarjeta(id=None, nombre=nombre, banco=banco, ultimos_digitos=ultimos_digitos, moneda=Moneda(moneda))
         tarjeta.id = self._tarjetas.crear(tarjeta)
         return tarjeta
 

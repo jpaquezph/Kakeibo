@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS categorias (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL UNIQUE,
     color TEXT NOT NULL,
-    icono TEXT NOT NULL
+    icono TEXT NOT NULL,
+    tipo TEXT NOT NULL DEFAULT 'egreso' CHECK (tipo IN ('ingreso', 'egreso'))
 );
 
 CREATE TABLE IF NOT EXISTS tarjetas (

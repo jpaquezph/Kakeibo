@@ -51,7 +51,15 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         if auth.session is not None:
             auth.session.touch()
         estado["seccion"] = key
-        shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
+        try:
+            shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
+        except Exception:
+            import traceback
+            with open("kakeibo_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"--- error al cambiar a seccion {key!r} ---\n")
+                f.write(traceback.format_exc())
+                f.write("\n")
+            raise
         page.update()
 
     def salir(_e=None):
