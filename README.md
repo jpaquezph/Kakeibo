@@ -44,6 +44,31 @@ tests/              -> pytest (unit + integration)
 main.py             -> punto de entrada
 ```
 
+## Empaquetado (generar un instalador para Windows)
+
+Requiere `pyinstaller` (en el venv) e [Inno Setup 6](https://jrsoftware.org/isdl.php)
+instalado en la máquina que compila.
+
+```bash
+.venv\Scripts\pip install pyinstaller
+
+.venv\Scripts\flet pack main.py -n Kakeibo --product-name "Kakeibo" ^
+  --company-name "Kakeibo" --add-data "migrations;migrations" ^
+  --hidden-import tkinter --hidden-import tkinter.filedialog -y
+```
+
+Esto genera `dist\Kakeibo.exe` (un solo archivo, autocontenido — no necesita
+Python ni internet en la máquina de destino). Después, compilar el instalador:
+
+```bash
+"%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" packaging\kakeibo.iss
+```
+
+Esto genera `installer\KakeiboSetup.exe`: ese es el único archivo que hay que
+compartir. Al ejecutarlo, instala la app en `%LOCALAPPDATA%\Kakeibo`, crea un
+ícono en el Escritorio (sin pedir elegir carpetas) y queda registrado como
+programa desinstalable normal de Windows.
+
 ## Notas de diseño
 
 - Los montos se guardan en SQLite como enteros (centavos) y se operan con

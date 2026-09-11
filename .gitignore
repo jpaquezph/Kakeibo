@@ -9,5 +9,6 @@ kakeibo_debug.log
 backups/
 build/
 dist/
+installer/
 *.spec
 *.zip
