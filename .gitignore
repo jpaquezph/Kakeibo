@@ -7,3 +7,7 @@ kakeibo.db
 kakeibo_debug.log
 *.pre_restore.db
 backups/
+build/
+dist/
+*.spec
+*.zip
