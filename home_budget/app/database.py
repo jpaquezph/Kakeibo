@@ -23,6 +23,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
         conn.executescript(migration.read_text(encoding="utf-8"))
     _ensure_categoria_tipo_column(conn)
+    _ensure_tarjeta_color_column(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -32,6 +33,13 @@ def _ensure_categoria_tipo_column(conn: sqlite3.Connection) -> None:
     columnas = {row["name"] for row in conn.execute("PRAGMA table_info(categorias)")}
     if "tipo" not in columnas:
         conn.execute("ALTER TABLE categorias ADD COLUMN tipo TEXT NOT NULL DEFAULT 'egreso'")
+
+
+def _ensure_tarjeta_color_column(conn: sqlite3.Connection) -> None:
+    """Agrega la columna 'color' a tarjetas si la base es de una version anterior."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(tarjetas)")}
+    if "color" not in columnas:
+        conn.execute("ALTER TABLE tarjetas ADD COLUMN color TEXT NOT NULL DEFAULT '#D6467E'")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

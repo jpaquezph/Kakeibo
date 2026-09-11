@@ -103,6 +103,7 @@ class Tarjeta:
     banco: str
     ultimos_digitos: str
     moneda: Moneda
+    color: str = "#D6467E"
     activa: bool = True
 
 

@@ -41,6 +41,17 @@ RADIUS = 16
 RADIUS_SM = 10
 RADIUS_LG = 24
 
+# Paleta de colores a elegir para identificar tarjetas visualmente
+TARJETA_COLORES = ["#D6467E", "#2A78D6", "#EB6834", "#16A34A", "#7C4DFF", "#E34948", "#1BAF7A", "#EDA100"]
+
+
+def darken(hex_color: str, factor: float = 0.65) -> str:
+    """Oscurece un color hexadecimal (0 < factor < 1) para usar como par en gradientes."""
+    hex_color = hex_color.lstrip("#")
+    r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+    r, g, b = int(r * factor), int(g * factor), int(b * factor)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
 
 def app_theme() -> ft.Theme:
     return ft.Theme(

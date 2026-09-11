@@ -50,9 +50,9 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_LEFT,
                 end=ft.Alignment.BOTTOM_RIGHT,
-                colors=[theme.TARJETAS_COLOR, "#7A2E58"],
+                colors=[t.color, theme.darken(t.color)],
             ),
-            border=theme.border_all(3, theme.TARJETAS_COLOR) if seleccionada else None,
+            border=theme.border_all(3, theme.TEXT_PRIMARY) if seleccionada else None,
             on_click=on_click,
             ink=True,
         )
@@ -125,15 +125,40 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
     def nueva_tarjeta(_e=None):
         nombre_f = ft.TextField(label="Nombre (ej: Visa Galicia)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         banco_f = ft.TextField(label="Banco", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
-        digitos_f = ft.TextField(label="Últimos 4 dígitos", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, max_length=4)
+        digitos_f = ft.TextField(label="Últimos 4 dígitos (opcional)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, max_length=4)
         moneda_dd = ft.Dropdown(label="Moneda", value=Moneda.ARS.value, options=[ft.dropdown.Option(m.value) for m in Moneda], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
+
+        color_elegido = {"value": theme.TARJETA_COLORES[0]}
+        swatches_row = ft.Row(spacing=10)
+
+        def elegir_color(color):
+            color_elegido["value"] = color
+            _redibujar_swatches()
+            page.update()
+
+        def _swatch(color):
+            seleccionado = color == color_elegido["value"]
+            return ft.Container(
+                width=30, height=30, bgcolor=color, border_radius=15,
+                border=theme.border_all(3, theme.TEXT_PRIMARY) if seleccionado else theme.border_all(1, theme.BORDER),
+                on_click=lambda e, c=color: elegir_color(c),
+                ink=True,
+            )
+
+        def _redibujar_swatches():
+            swatches_row.controls = [_swatch(c) for c in theme.TARJETA_COLORES]
+
+        _redibujar_swatches()
 
         def guardar(_e):
             try:
                 if not (nombre_f.value or "").strip():
                     raise ValueError("El nombre de la tarjeta es obligatorio")
-                t = tarjeta_service.crear_tarjeta(nombre_f.value.strip(), banco_f.value or "", digitos_f.value or "", moneda_dd.value)
+                t = tarjeta_service.crear_tarjeta(
+                    nombre_f.value.strip(), banco_f.value or "", digitos_f.value or "",
+                    moneda_dd.value, color_elegido["value"],
+                )
                 estado["tarjeta_id"] = t.id
             except ValueError as exc:
                 error_text.value = str(exc)
@@ -146,13 +171,25 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Nueva tarjeta"),
-            content=ft.Container(ft.Column([nombre_f, banco_f, digitos_f, moneda_dd, error_text], spacing=12, tight=True), width=360),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        nombre_f, banco_f, digitos_f, moneda_dd,
+                        ft.Text("Color para identificarla", size=12, color=theme.TEXT_SECONDARY),
+                        swatches_row,
+                        error_text,
+                    ],
+                    spacing=12, tight=True,
+                ),
+                width=360,
+            ),
             actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
         page.show_dialog(dialog)
 
     def nueva_compra(_e=None):
-        if estado["tarjeta_id"] is None:
+        tarjetas_disponibles = tarjeta_service.listar_tarjetas()
+        if not tarjetas_disponibles:
             return
         fecha_holder = {"value": date.today()}
         fecha_text = ft.Text(fecha_holder["value"].strftime("%d/%m/%Y"), size=14)
@@ -166,22 +203,37 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
         date_picker = ft.DatePicker(value=fecha_holder["value"], on_change=on_fecha_change)
         page.overlay.append(date_picker)
 
+        tarjeta_id_inicial = estado["tarjeta_id"] if estado["tarjeta_id"] is not None else tarjetas_disponibles[0].id
+        tarjeta_dd = ft.Dropdown(
+            label="Tarjeta",
+            value=str(tarjeta_id_inicial),
+            options=[ft.dropdown.Option(str(t.id), t.nombre) for t in tarjetas_disponibles],
+            filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+        )
         concepto_f = ft.TextField(label="Concepto", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         detalle_f = ft.TextField(label="Detalle (opcional)", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         monto_f = ft.TextField(label="Monto total", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
         cuotas_f = ft.TextField(label="Cantidad de cuotas", value="1", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
+        cuota_inicial_f = ft.TextField(
+            label="¿En qué cuota empezás?", value="1", filled=True, bgcolor=theme.SURFACE_ALT,
+            border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER,
+            helper="Si ya veniás pagando (ej: compraste hace 3 meses), poné en qué cuota estás ahora.",
+        )
         categoria_dd = ft.Dropdown(label="Categoría", value=str(categorias[0].id) if categorias else None, options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def guardar(_e):
             try:
-                tarjeta = next(t for t in tarjeta_service.listar_tarjetas() if t.id == estado["tarjeta_id"])
+                tarjeta_id = int(tarjeta_dd.value)
+                tarjeta = next(t for t in tarjetas_disponibles if t.id == tarjeta_id)
                 monto = Money.from_decimal((monto_f.value or "0").replace(",", "."), tarjeta.moneda)
                 cantidad = int(cuotas_f.value or "1")
+                cuota_inicial = int(cuota_inicial_f.value or "1")
                 tarjeta_service.registrar_compra(
-                    estado["tarjeta_id"], fecha_holder["value"], concepto_f.value or "", detalle_f.value or "",
-                    monto, int(categoria_dd.value), cantidad,
+                    tarjeta_id, fecha_holder["value"], concepto_f.value or "", detalle_f.value or "",
+                    monto, int(categoria_dd.value), cantidad, cuota_inicial,
                 )
+                estado["tarjeta_id"] = tarjeta_id
             except (ValueError, ArithmeticError) as exc:
                 error_text.value = str(exc)
                 error_text.visible = True
@@ -196,12 +248,13 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             content=ft.Container(
                 ft.Column(
                     [
+                        tarjeta_dd,
                         ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
-                        concepto_f, detalle_f, monto_f, cuotas_f, categoria_dd, error_text,
+                        concepto_f, detalle_f, monto_f, cuotas_f, cuota_inicial_f, categoria_dd, error_text,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
-                width=400,
+                width=420,
             ),
             actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Registrar compra", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )

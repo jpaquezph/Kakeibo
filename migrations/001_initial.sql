@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS tarjetas (
     banco TEXT NOT NULL DEFAULT '',
     ultimos_digitos TEXT NOT NULL DEFAULT '',
     moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
+    color TEXT NOT NULL DEFAULT '#D6467E',
     activa INTEGER NOT NULL DEFAULT 1
 );
 

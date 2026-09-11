@@ -81,3 +81,39 @@ def test_una_cuota_no_puede_pagarse_dos_veces(conn):
     service.pagar_cuota(compra.cuotas[0].id)
     with pytest.raises(ValueError):
         service.pagar_cuota(compra.cuotas[0].id)
+
+
+def test_tarjeta_guarda_el_color_elegido(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS, color="#2A78D6")
+
+    assert tarjeta.color == "#2A78D6"
+    recargada = service.listar_tarjetas()[0]
+    assert recargada.color == "#2A78D6"
+
+
+def test_compra_con_cuota_inicial_marca_las_anteriores_como_pagadas(conn):
+    """Ej: compraste una heladera hace 3 meses y recien ahora cargas la app:
+    debes poder indicar que arrancas en la cuota 3 de 12."""
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    compra = service.registrar_compra(
+        tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("120000", Moneda.ARS),
+        _categoria_id(conn), cantidad_cuotas=12, cuota_inicial=3,
+    )
+
+    assert compra.cuotas_pagadas == 2
+    assert compra.cuota_actual == 3
+    assert compra.cuotas_restantes == 10
+    assert compra.cuotas[0].pagada and compra.cuotas[1].pagada
+    assert not compra.cuotas[2].pagada
+
+
+def test_cuota_inicial_invalida_lanza_error(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    with pytest.raises(ValueError):
+        service.registrar_compra(
+            tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("1000", Moneda.ARS),
+            _categoria_id(conn), cantidad_cuotas=6, cuota_inicial=7,
+        )

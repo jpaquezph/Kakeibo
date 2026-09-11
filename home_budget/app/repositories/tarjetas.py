@@ -18,21 +18,22 @@ class TarjetaRepository:
             banco=row["banco"],
             ultimos_digitos=row["ultimos_digitos"],
             moneda=Moneda(row["moneda"]),
+            color=row["color"],
             activa=bool(row["activa"]),
         )
 
     def crear(self, t: Tarjeta) -> int:
         cur = self._conn.execute(
-            "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, activa) VALUES (?, ?, ?, ?, ?)",
-            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, int(t.activa)),
+            "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, color, activa) VALUES (?, ?, ?, ?, ?, ?)",
+            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa)),
         )
         self._conn.commit()
         return cur.lastrowid
 
     def actualizar(self, t: Tarjeta) -> None:
         self._conn.execute(
-            "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, activa=? WHERE id=?",
-            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, int(t.activa), t.id),
+            "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, color=?, activa=? WHERE id=?",
+            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa), t.id),
         )
         self._conn.commit()
 

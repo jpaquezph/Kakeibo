@@ -15,8 +15,8 @@ class TarjetaService:
         self._compras = CompraRepository(conn)
 
     # Tarjetas
-    def crear_tarjeta(self, nombre: str, banco: str, ultimos_digitos: str, moneda) -> Tarjeta:
-        tarjeta = Tarjeta(id=None, nombre=nombre, banco=banco, ultimos_digitos=ultimos_digitos, moneda=Moneda(moneda))
+    def crear_tarjeta(self, nombre: str, banco: str, ultimos_digitos: str, moneda, color: str = "#D6467E") -> Tarjeta:
+        tarjeta = Tarjeta(id=None, nombre=nombre, banco=banco, ultimos_digitos=ultimos_digitos, moneda=Moneda(moneda), color=color)
         tarjeta.id = self._tarjetas.crear(tarjeta)
         return tarjeta
 
@@ -36,18 +36,27 @@ class TarjetaService:
         monto_total: Money,
         categoria_id: int,
         cantidad_cuotas: int = 1,
+        cuota_inicial: int = 1,
     ) -> Compra:
+        if not (1 <= cuota_inicial <= cantidad_cuotas):
+            raise ValueError("La cuota actual debe estar entre 1 y la cantidad total de cuotas")
         montos_cuota = split_in_installments(monto_total, cantidad_cuotas)
-        cuotas = [
-            CuotaCompra(
-                id=None,
-                compra_id=0,
-                numero_cuota=i + 1,
-                monto=monto,
-                fecha_vencimiento=add_months(fecha, i + 1) if cantidad_cuotas > 1 else fecha,
+        cuotas = []
+        for i, monto in enumerate(montos_cuota):
+            numero = i + 1
+            vencimiento = add_months(fecha, numero) if cantidad_cuotas > 1 else fecha
+            ya_pagada = numero < cuota_inicial
+            cuotas.append(
+                CuotaCompra(
+                    id=None,
+                    compra_id=0,
+                    numero_cuota=numero,
+                    monto=monto,
+                    fecha_vencimiento=vencimiento,
+                    pagada=ya_pagada,
+                    fecha_pago=vencimiento if ya_pagada else None,
+                )
             )
-            for i, monto in enumerate(montos_cuota)
-        ]
         compra = Compra(
             id=None,
             tarjeta_id=tarjeta_id,
