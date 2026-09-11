@@ -3,7 +3,9 @@ from __future__ import annotations
 import flet as ft
 
 from ...app.auth.service import AuthService
+from ...app.database import DEFAULT_DB_PATH
 from ...app.repositories.categorias import CategoriaRepository
+from ...app.services.backup import crear_backup
 from ...app.services.dashboard import DashboardService
 from ...app.services.movimientos import MovimientoService
 from ...app.services.prestamos import PrestamoService
@@ -56,11 +58,26 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         auth.logout()
         on_logout()
 
-    shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir)
+    def hacer_backup(_e=None):
+        try:
+            destino = crear_backup(DEFAULT_DB_PATH, DEFAULT_DB_PATH.parent / "backups")
+            icono, color, mensaje = "check_circle_rounded", theme.INCOME_GREEN, f"Backup creado con éxito en:\n{destino}"
+        except Exception as exc:
+            icono, color, mensaje = "error_rounded", theme.EXPENSE_RED, f"No se pudo crear el backup:\n{exc}"
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Row([ft.Icon(icono, color=color), ft.Text("Backup")], spacing=8),
+            content=ft.Text(mensaje, size=13, selectable=True),
+            actions=[theme.primary_button("Aceptar", lambda e: page.pop_dialog(), color=theme.DASHBOARD_COLOR)],
+        )
+        page.show_dialog(dialog)
+
+    shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
     return shell_container
 
 
-def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir) -> ft.Control:
+def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup) -> ft.Control:
     nav_items = [_nav_button(key, icon, label, color, bg, estado["seccion"] == key, cambiar_seccion) for key, icon, label, color, bg in _SECTIONS]
 
     sidebar = ft.Container(
@@ -78,6 +95,15 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir) -> ft.Co
                 ),
                 *nav_items,
                 ft.Container(expand=True),
+                ft.Container(
+                    content=ft.TextButton(
+                        "Hacer backup",
+                        icon="backup_rounded",
+                        on_click=hacer_backup,
+                        style=ft.ButtonStyle(color=theme.TEXT_SECONDARY),
+                    ),
+                    padding=theme.pad_only(left=12, bottom=4, right=8),
+                ),
                 ft.Container(
                     content=ft.Column(
                         [
