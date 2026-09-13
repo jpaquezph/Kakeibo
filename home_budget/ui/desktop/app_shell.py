@@ -36,6 +36,22 @@ class _BrowseInfo(ctypes.Structure):
     ]
 
 
+# En ctypes hay que declarar restype/argtypes explicitamente: sin eso asume
+# que todo devuelve un int de 32 bits, lo que trunca el puntero de 64 bits
+# que devuelve SHBrowseForFolderW y termina en "access violation" al usarlo.
+_SHBrowseForFolderW = ctypes.windll.shell32.SHBrowseForFolderW
+_SHBrowseForFolderW.restype = ctypes.c_void_p
+_SHBrowseForFolderW.argtypes = [ctypes.POINTER(_BrowseInfo)]
+
+_SHGetPathFromIDListW = ctypes.windll.shell32.SHGetPathFromIDListW
+_SHGetPathFromIDListW.restype = wintypes.BOOL
+_SHGetPathFromIDListW.argtypes = [ctypes.c_void_p, wintypes.LPWSTR]
+
+_CoTaskMemFree = ctypes.windll.ole32.CoTaskMemFree
+_CoTaskMemFree.restype = None
+_CoTaskMemFree.argtypes = [ctypes.c_void_p]
+
+
 def _elegir_carpeta_backup() -> str | None:
     """Abre el selector nativo de carpetas de Windows via Shell32 (ctypes).
 
@@ -53,15 +69,15 @@ def _elegir_carpeta_backup() -> str | None:
     info.lpszTitle = "Elegí dónde guardar el backup"
     info.ulFlags = BIF_RETURNONLYFSDIRS
 
-    pidl = ctypes.windll.shell32.SHBrowseForFolderW(ctypes.byref(info))
+    pidl = _SHBrowseForFolderW(ctypes.byref(info))
     if not pidl:
         return None
     try:
         path_buf = ctypes.create_unicode_buffer(260)
-        ctypes.windll.shell32.SHGetPathFromIDListW(pidl, path_buf)
+        _SHGetPathFromIDListW(pidl, path_buf)
         return path_buf.value or None
     finally:
-        ctypes.windll.ole32.CoTaskMemFree(pidl)
+        _CoTaskMemFree(pidl)
 
 
 _SECTIONS = [
