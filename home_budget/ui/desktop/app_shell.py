@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import ctypes
+from ctypes import wintypes
 from pathlib import Path
 
 import flet as ft
@@ -18,6 +21,48 @@ from .historial_view import build_historial_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
 from .tarjetas_view import build_tarjetas_view
+
+
+class _BrowseInfo(ctypes.Structure):
+    _fields_ = [
+        ("hwndOwner", wintypes.HWND),
+        ("pidlRoot", ctypes.c_void_p),
+        ("pszDisplayName", wintypes.LPWSTR),
+        ("lpszTitle", wintypes.LPCWSTR),
+        ("ulFlags", wintypes.UINT),
+        ("lpfn", ctypes.c_void_p),
+        ("lParam", ctypes.c_void_p),
+        ("iImage", ctypes.c_int),
+    ]
+
+
+def _elegir_carpeta_backup() -> str | None:
+    """Abre el selector nativo de carpetas de Windows via Shell32 (ctypes).
+
+    No se usa Tkinter porque el runtime de Python embebido por
+    'flet build windows' no incluye el modulo _tkinter, ni ft.FilePicker
+    porque en esta version de Flet (0.86.5) ese control no se registra en
+    el cliente de Windows ("Unknown control: FilePicker"). La API de Shell32
+    via ctypes no depende de ninguno de los dos.
+    """
+    BIF_RETURNONLYFSDIRS = 0x0001
+
+    display_name = ctypes.create_unicode_buffer(260)
+    info = _BrowseInfo()
+    info.pszDisplayName = ctypes.cast(display_name, wintypes.LPWSTR)
+    info.lpszTitle = "Elegí dónde guardar el backup"
+    info.ulFlags = BIF_RETURNONLYFSDIRS
+
+    pidl = ctypes.windll.shell32.SHBrowseForFolderW(ctypes.byref(info))
+    if not pidl:
+        return None
+    try:
+        path_buf = ctypes.create_unicode_buffer(260)
+        ctypes.windll.shell32.SHGetPathFromIDListW(pidl, path_buf)
+        return path_buf.value or None
+    finally:
+        ctypes.windll.ole32.CoTaskMemFree(pidl)
+
 
 _SECTIONS = [
     ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
@@ -70,15 +115,8 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         on_logout()
 
     async def hacer_backup(_e=None):
-        picker = ft.FilePicker()
-        page.overlay.append(picker)
-        page.update()
-        try:
-            destino_dir = await picker.get_directory_path(dialog_title="Elegí dónde guardar el backup")
-        finally:
-            if picker in page.overlay:
-                page.overlay.remove(picker)
-            page.update()
+        loop = asyncio.get_event_loop()
+        destino_dir = await loop.run_in_executor(None, _elegir_carpeta_backup)
 
         if not destino_dir:
             return  # el usuario cancelo el dialogo
