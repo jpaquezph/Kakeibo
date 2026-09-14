@@ -10,7 +10,7 @@ class Moneda(str, Enum):
     USD = "USD"
 
 
-_SYMBOLS = {Moneda.ARS: "$", Moneda.USD: "US$"}
+_SYMBOLS = {Moneda.ARS: "$", Moneda.USD: "$us"}
 
 _CENTS = Decimal("100")
 _TWO_DECIMALS = Decimal("0.01")

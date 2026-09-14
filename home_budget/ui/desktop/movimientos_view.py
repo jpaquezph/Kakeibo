@@ -113,7 +113,11 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             options=[ft.dropdown.Option(e.value) for e in EstadoMovimiento],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
-        fijo_check = ft.Checkbox(label="Es un gasto fijo", value=movimiento.fijo if es_edicion else False, visible=tipo_inicial == TipoMovimiento.EGRESO)
+        fijo_nota = ft.Text(
+            "Para gastos fijos (alquiler, servicios, suscripciones), usá la sección 'Gastos fijos'.",
+            size=11, color=theme.TEXT_MUTED, italic=True,
+            visible=tipo_inicial == TipoMovimiento.EGRESO,
+        )
 
         nueva_categoria_field = ft.TextField(
             label="Nombre de la categoría nueva", filled=True, bgcolor=theme.SURFACE_ALT,
@@ -131,9 +135,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             opciones = categorias_de(tipo)
             categoria_dd.options = [ft.dropdown.Option(str(c.id), c.nombre) for c in opciones]
             categoria_dd.value = str(opciones[0].id) if opciones else None
-            fijo_check.visible = tipo == TipoMovimiento.EGRESO
-            if tipo == TipoMovimiento.INGRESO:
-                fijo_check.value = False
+            fijo_nota.visible = tipo == TipoMovimiento.EGRESO
             nueva_categoria_row.visible = False
             nueva_categoria_field.value = ""
             page.update()
@@ -190,7 +192,6 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                     movimiento.monto = monto
                     movimiento.categoria_id = int(categoria_dd.value)
                     movimiento.estado = EstadoMovimiento(estado_dd.value)
-                    movimiento.fijo = fijo_check.value
                     movimiento_service.editar(movimiento)
                 else:
                     movimiento_service.registrar(
@@ -201,7 +202,6 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                         monto=monto,
                         categoria_id=int(categoria_dd.value),
                         estado=EstadoMovimiento(estado_dd.value),
-                        fijo=fijo_check.value,
                     )
             except (ValueError, ArithmeticError) as exc:
                 error_text.value = str(exc)
@@ -222,14 +222,14 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                 content=ft.Column(
                     [
                         tipo_selector,
-                        ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=abrir_calendario)]),
+                        ft.Row([ft.Text("Fecha de pago:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=abrir_calendario)]),
                         concepto_field,
                         detalle_field,
                         ft.Row([ft.Container(monto_field, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
                         categoria_row,
                         nueva_categoria_row,
                         estado_dd,
-                        fijo_check,
+                        fijo_nota,
                         error_text,
                     ],
                     spacing=12,

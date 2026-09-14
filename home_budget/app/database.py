@@ -50,6 +50,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_categoria_tipo_column(conn)
     _ensure_tarjeta_color_column(conn)
     _ensure_usuario_recuperacion_columnas(conn)
+    _ensure_movimiento_gasto_fijo_column(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -77,6 +78,14 @@ def _ensure_usuario_recuperacion_columnas(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_hash TEXT NOT NULL DEFAULT ''")
     if "respuesta_salt" not in columnas:
         conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_salt TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_movimiento_gasto_fijo_column(conn: sqlite3.Connection) -> None:
+    """Agrega la columna 'gasto_fijo_id' a movimientos si la base es de una version anterior.
+    Vincula un movimiento con el gasto fijo (plantilla recurrente) que lo genero."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(movimientos)")}
+    if "gasto_fijo_id" not in columnas:
+        conn.execute("ALTER TABLE movimientos ADD COLUMN gasto_fijo_id INTEGER REFERENCES gastos_fijos(id)")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

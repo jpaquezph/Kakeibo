@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS movimientos (
     estado TEXT NOT NULL DEFAULT 'confirmado' CHECK (estado IN ('pendiente', 'confirmado')),
     fijo INTEGER NOT NULL DEFAULT 0,
     tarjeta_id INTEGER REFERENCES tarjetas(id),
+    gasto_fijo_id INTEGER REFERENCES gastos_fijos(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

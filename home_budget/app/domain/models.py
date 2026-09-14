@@ -41,6 +41,8 @@ CATEGORIAS_BASE: list[dict] = [
     {"nombre": "Extra", "color": "#4CAF50", "icono": "add_circle", "tipo": "ingreso"},
     {"nombre": "Regalo", "color": "#2E7D32", "icono": "card_giftcard", "tipo": "ingreso"},
     {"nombre": "Otros ingresos", "color": "#66BB6A", "icono": "more_horiz", "tipo": "ingreso"},
+    {"nombre": "Cambio de moneda (entregado)", "color": "#0E7C86", "icono": "currency_exchange", "tipo": "egreso"},
+    {"nombre": "Cambio de moneda (recibido)", "color": "#0E7C86", "icono": "currency_exchange", "tipo": "ingreso"},
 ]
 
 
@@ -74,6 +76,7 @@ class Movimiento:
     estado: EstadoMovimiento = EstadoMovimiento.CONFIRMADO
     fijo: bool = False
     tarjeta_id: int | None = None
+    gasto_fijo_id: int | None = None
     categoria_nombre: str | None = None
     categoria_color: str | None = None
     categoria_icono: str | None = None

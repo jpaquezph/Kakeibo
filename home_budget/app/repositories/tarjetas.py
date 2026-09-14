@@ -133,6 +133,15 @@ class CompraRepository:
         self._conn.execute("DELETE FROM compras WHERE id = ?", (compra_id,))
         self._conn.commit()
 
+    def total_pendiente_centavos(self, tarjeta_id: int) -> int:
+        row = self._conn.execute(
+            """SELECT SUM(cc.monto_centavos) AS total
+               FROM cuotas_compra cc JOIN compras co ON co.id = cc.compra_id
+               WHERE co.tarjeta_id = ? AND cc.pagada = 0""",
+            (tarjeta_id,),
+        ).fetchone()
+        return row["total"] or 0
+
     def listar_por_tarjeta(self, tarjeta_id: int) -> list[Compra]:
         rows = self._conn.execute(
             "SELECT * FROM compras WHERE tarjeta_id = ? ORDER BY fecha DESC, id DESC", (tarjeta_id,)

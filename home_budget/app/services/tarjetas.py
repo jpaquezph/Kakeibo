@@ -38,6 +38,14 @@ class TarjetaService:
     def eliminar_tarjeta(self, tarjeta_id: int) -> None:
         self._tarjetas.eliminar(tarjeta_id)
 
+    def obtener_tarjeta(self, tarjeta_id: int) -> Tarjeta | None:
+        return self._tarjetas.obtener(tarjeta_id)
+
+    def total_pendiente(self, tarjeta_id: int) -> Money:
+        tarjeta = self._tarjetas.obtener(tarjeta_id)
+        moneda = tarjeta.moneda if tarjeta else Moneda.ARS
+        return Money(self._compras.total_pendiente_centavos(tarjeta_id), moneda)
+
     # Compras y cuotas
     def registrar_compra(
         self,
@@ -85,6 +93,24 @@ class TarjetaService:
 
     def pagar_cuota(self, cuota_id: int, fecha_pago: date | None = None) -> None:
         self._compras.marcar_cuota_pagada(cuota_id, fecha_pago or date.today())
+
+    def cuotas_pendientes_del_mes(self, tarjeta_id: int, anio: int, mes: int) -> list[CuotaCompra]:
+        """Cuotas sin pagar de esta tarjeta (de cualquier compra) que vencen en ese mes."""
+        pendientes = []
+        for compra in self._compras.listar_por_tarjeta(tarjeta_id):
+            for cuota in compra.cuotas:
+                if not cuota.pagada and cuota.fecha_vencimiento.year == anio and cuota.fecha_vencimiento.month == mes:
+                    pendientes.append(cuota)
+        return pendientes
+
+    def pagar_cuotas_del_mes(self, tarjeta_id: int, anio: int, mes: int, fecha_pago: date | None = None) -> int:
+        """Marca como pagadas todas las cuotas de esta tarjeta que vencen en ese mes.
+        Devuelve la cantidad de cuotas pagadas."""
+        fecha_pago = fecha_pago or date.today()
+        cuotas = self.cuotas_pendientes_del_mes(tarjeta_id, anio, mes)
+        for cuota in cuotas:
+            self._compras.marcar_cuota_pagada(cuota.id, fecha_pago)
+        return len(cuotas)
 
     def editar_datos_compra(self, compra_id: int, concepto: str, detalle: str, categoria_id: int) -> Compra:
         """Edita los datos descriptivos de una compra (concepto, detalle, categoria).

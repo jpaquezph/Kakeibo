@@ -13,9 +13,12 @@ from . import components
 
 def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft.Control:
     lista_col = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
+    contador_text = ft.Text("", size=13, color=theme.TEXT_SECONDARY)
 
     def refrescar():
         prestamos = prestamo_service.listar()
+        pendientes = [p for p in prestamos if p.estado == EstadoPrestamo.ACTIVO]
+        contador_text.value = f"{len(pendientes)} préstamo(s) pendiente(s) de {len(prestamos)} en total"
         lista_col.controls.clear()
         if not prestamos:
             lista_col.controls.append(components.empty_state("Todavía no registraste préstamos.", "account_balance_rounded"))
@@ -184,7 +187,13 @@ def build_prestamos_view(page: ft.Page, prestamo_service: PrestamoService) -> ft
 
     header = ft.Row(
         [
-            ft.Text("Préstamos", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
+            ft.Column(
+                [
+                    ft.Text("Préstamos", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
+                    contador_text,
+                ],
+                spacing=2,
+            ),
             theme.primary_button("Nuevo préstamo", nuevo_prestamo, color=theme.PRESTAMOS_COLOR, icon=ft.Icons.ADD_ROUNDED),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

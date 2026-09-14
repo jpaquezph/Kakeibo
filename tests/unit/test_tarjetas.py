@@ -150,6 +150,34 @@ def test_editar_tarjeta(conn):
     assert recargada.color == "#EB6834"
 
 
+def test_total_pendiente_de_una_tarjeta(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    service.registrar_compra(tarjeta.id, date(2026, 1, 1), "Cena", "", Money.from_decimal("1000", Moneda.ARS), _categoria_id(conn), 1)
+    compra_cuotas = service.registrar_compra(tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("6000", Moneda.ARS), _categoria_id(conn), 6)
+
+    assert service.total_pendiente(tarjeta.id).amount == 7000
+
+    service.pagar_cuota(compra_cuotas.cuotas[0].id)
+    assert service.total_pendiente(tarjeta.id).amount == 6000
+
+
+def test_pagar_cuotas_del_mes_marca_solo_las_que_vencen_ese_mes(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
+    compra = service.registrar_compra(
+        tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("6000", Moneda.ARS), _categoria_id(conn), 6
+    )
+    service.registrar_compra(tarjeta.id, date(2026, 2, 1), "Cena", "", Money.from_decimal("500", Moneda.ARS), _categoria_id(conn), 1)
+
+    cantidad = service.pagar_cuotas_del_mes(tarjeta.id, 2026, 2)
+
+    assert cantidad == 2  # la 1ra cuota de la heladera (vence en feb) + la cena (1 pago en feb)
+    recargada = service.obtener_compra(compra.id)
+    assert recargada.cuotas[0].pagada
+    assert not recargada.cuotas[1].pagada
+
+
 def test_editar_datos_compra(conn):
     service = TarjetaService(conn)
     tarjeta = service.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)

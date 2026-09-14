@@ -11,12 +11,16 @@ from ...app.auth.service import AuthService
 from ...app.database import DEFAULT_DB_PATH
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.backup import crear_backup
+from ...app.services.cambio import CambioDivisaService
 from ...app.services.dashboard import DashboardService
+from ...app.services.gastos_fijos import GastoFijoService
 from ...app.services.movimientos import MovimientoService
 from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
 from .. import theme
+from .calendario_view import build_calendario_view
 from .dashboard_view import build_dashboard_view
+from .gastos_fijos_view import build_gastos_fijos_view
 from .historial_view import build_historial_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
@@ -83,8 +87,10 @@ def _elegir_carpeta_backup() -> str | None:
 _SECTIONS = [
     ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
     ("movimientos", "swap_vert_rounded", "Movimientos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
+    ("gastos_fijos", "event_repeat_rounded", "Gastos fijos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
     ("tarjetas", "credit_card_rounded", "Tarjetas", theme.TARJETAS_COLOR, theme.TARJETAS_BG),
     ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
+    ("calendario", "calendar_month_rounded", "Calendario", theme.CALENDARIO_COLOR, theme.CALENDARIO_BG),
     ("historial", "history_rounded", "Historial", theme.HISTORIAL_COLOR, theme.HISTORIAL_BG),
 ]
 
@@ -95,6 +101,8 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
     tarjeta_service = TarjetaService(conn)
     prestamo_service = PrestamoService(conn)
     dashboard_service = DashboardService(conn)
+    cambio_service = CambioDivisaService(conn)
+    gasto_fijo_service = GastoFijoService(conn)
 
     shell_container = ft.Container(expand=True)
     estado = {"seccion": "dashboard"}
@@ -102,13 +110,17 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
     def contenido_para(seccion: str) -> ft.Control:
         if seccion == "movimientos":
             return build_movimientos_view(page, movimiento_service, categoria_repo)
+        if seccion == "gastos_fijos":
+            return build_gastos_fijos_view(page, gasto_fijo_service, categoria_repo)
         if seccion == "tarjetas":
             return build_tarjetas_view(page, tarjeta_service, categoria_repo)
         if seccion == "prestamos":
             return build_prestamos_view(page, prestamo_service)
+        if seccion == "calendario":
+            return build_calendario_view(page, tarjeta_service, prestamo_service, gasto_fijo_service)
         if seccion == "historial":
             return build_historial_view(page, movimiento_service, categoria_repo)
-        return build_dashboard_view(page, dashboard_service)
+        return build_dashboard_view(page, dashboard_service, cambio_service)
 
     def cambiar_seccion(key: str):
         if auth.session is not None:

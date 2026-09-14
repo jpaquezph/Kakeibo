@@ -30,6 +30,14 @@ class GastoFijoRepository:
         self._conn.commit()
         return cur.lastrowid
 
+    def actualizar(self, g: GastoFijo) -> None:
+        self._conn.execute(
+            """UPDATE gastos_fijos SET concepto = ?, detalle = ?, monto_centavos = ?, moneda = ?,
+                 categoria_id = ?, dia_mes = ?, activo = ? WHERE id = ?""",
+            (g.concepto, g.detalle, g.monto.cents, g.monto.moneda.value, g.categoria_id, g.dia_mes, int(g.activo), g.id),
+        )
+        self._conn.commit()
+
     def eliminar(self, gasto_fijo_id: int) -> None:
         self._conn.execute("DELETE FROM gastos_fijos WHERE id = ?", (gasto_fijo_id,))
         self._conn.commit()

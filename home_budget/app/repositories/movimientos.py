@@ -36,6 +36,7 @@ class MovimientoRepository:
             estado=EstadoMovimiento(row["estado"]),
             fijo=bool(row["fijo"]),
             tarjeta_id=row["tarjeta_id"],
+            gasto_fijo_id=row["gasto_fijo_id"] if "gasto_fijo_id" in row.keys() else None,
             categoria_nombre=row["categoria_nombre"] if "categoria_nombre" in row.keys() else None,
             categoria_color=row["categoria_color"] if "categoria_color" in row.keys() else None,
             categoria_icono=row["categoria_icono"] if "categoria_icono" in row.keys() else None,
@@ -50,8 +51,8 @@ class MovimientoRepository:
     def crear(self, m: Movimiento) -> int:
         cur = self._conn.execute(
             """INSERT INTO movimientos
-               (tipo, fecha, concepto, detalle, monto_centavos, moneda, categoria_id, estado, fijo, tarjeta_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (tipo, fecha, concepto, detalle, monto_centavos, moneda, categoria_id, estado, fijo, tarjeta_id, gasto_fijo_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 m.tipo.value,
                 m.fecha.isoformat(),
@@ -63,10 +64,20 @@ class MovimientoRepository:
                 m.estado.value,
                 int(m.fijo),
                 m.tarjeta_id,
+                m.gasto_fijo_id,
             ),
         )
         self._conn.commit()
         return cur.lastrowid
+
+    def existe_para_gasto_fijo(self, gasto_fijo_id: int, anio: int, mes: int) -> bool:
+        row = self._conn.execute(
+            """SELECT 1 FROM movimientos
+               WHERE gasto_fijo_id = ? AND strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ?
+               LIMIT 1""",
+            (gasto_fijo_id, f"{anio:04d}", f"{mes:02d}"),
+        ).fetchone()
+        return row is not None
 
     def actualizar(self, m: Movimiento) -> None:
         if m.id is None:

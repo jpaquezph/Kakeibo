@@ -13,7 +13,8 @@ from . import components
 
 
 def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categoria_repo: CategoriaRepository) -> ft.Control:
-    categorias = categoria_repo.listar(TipoMovimiento.EGRESO)
+    categoria_tarjeta = next((c for c in categoria_repo.listar(TipoMovimiento.EGRESO) if c.nombre == "Tarjeta de crédito"), None)
+    categoria_tarjeta_id = categoria_tarjeta.id if categoria_tarjeta else None
     estado = {"tarjeta_id": None}
 
     tarjetas_row = ft.Row(spacing=12, wrap=True)
@@ -33,6 +34,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
         page.update()
 
     def _tarjeta_card(t, seleccionada, on_click):
+        pendiente = tarjeta_service.total_pendiente(t.id)
         return ft.Container(
             content=ft.Column(
                 [
@@ -48,13 +50,19 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                     ft.Text(t.nombre, color="#FFFFFF", weight=ft.FontWeight.BOLD, size=15),
-                    ft.Text(f"{t.banco}  ••{t.ultimos_digitos}" if t.ultimos_digitos else t.banco, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
-                    ft.Text(t.moneda.value, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11),
+                    ft.Row(
+                        [
+                            ft.Text(f"{t.banco}  ••{t.ultimos_digitos}" if t.ultimos_digitos else t.banco, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11, expand=True),
+                            ft.Text(t.moneda.value, color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11, weight=ft.FontWeight.W_600),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ft.Text(f"Pendiente: {pendiente.formatted()}", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD),
                 ],
                 spacing=2,
             ),
             width=200,
-            height=110,
+            height=128,
             padding=12,
             border_radius=theme.RADIUS,
             gradient=ft.LinearGradient(
@@ -77,12 +85,74 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             detalle_col.controls.append(components.empty_state("Elegí o creá una tarjeta para ver sus compras."))
             return
         compras = tarjeta_service.listar_compras(estado["tarjeta_id"])
+        tarjeta_actual = tarjeta_service.obtener_tarjeta(estado["tarjeta_id"])
+        banner = _banner_pagar_mes(estado["tarjeta_id"])
+        if banner:
+            detalle_col.controls.append(banner)
         if not compras:
             detalle_col.controls.append(components.empty_state("Esta tarjeta todavía no tiene compras.", "shopping_bag_rounded"))
         for c in compras:
-            detalle_col.controls.append(_compra_card(c))
+            detalle_col.controls.append(_compra_card(c, tarjeta_actual))
 
-    def _compra_card(c):
+    def _banner_pagar_mes(tarjeta_id: int):
+        hoy = date.today()
+        pendientes = tarjeta_service.cuotas_pendientes_del_mes(tarjeta_id, hoy.year, hoy.month)
+        if not pendientes:
+            return None
+        total = Money.zero(pendientes[0].monto.moneda)
+        for cuota in pendientes:
+            total = total + cuota.monto
+        return theme.card(
+            ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text(f"{len(pendientes)} cuota(s) vencen este mes", size=13, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
+                            ft.Text(f"Total: {total.formatted()}", size=12, color=theme.TEXT_SECONDARY),
+                        ],
+                        spacing=2, expand=True,
+                    ),
+                    theme.primary_button("Pagar tarjeta (mes)", lambda e, tid=tarjeta_id: confirmar_pagar_mes(tid), color=theme.TARJETAS_COLOR, icon=ft.Icons.PAYMENTS_ROUNDED),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            padding=14,
+        )
+
+    def confirmar_pagar_mes(tarjeta_id: int):
+        hoy = date.today()
+        pendientes = tarjeta_service.cuotas_pendientes_del_mes(tarjeta_id, hoy.year, hoy.month)
+        total = Money.zero(pendientes[0].monto.moneda)
+        for cuota in pendientes:
+            total = total + cuota.monto
+
+        def confirmar(_e):
+            tarjeta_service.pagar_cuotas_del_mes(tarjeta_id, hoy.year, hoy.month)
+            page.pop_dialog()
+            refrescar_tarjetas()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Pagar tarjeta del mes"),
+            content=ft.Column(
+                [
+                    ft.Text(f"¿Marcar como pagadas las {len(pendientes)} cuota(s) que vencen este mes, por un total de {total.formatted()}?"),
+                    ft.Text(
+                        "Nota: si compraste algo en cuotas hace poco, su 1ra cuota recién vence el mes que viene, "
+                        "por eso puede no estar incluida todavía.",
+                        size=11, color=theme.TEXT_MUTED, italic=True,
+                    ),
+                ],
+                spacing=10, tight=True,
+            ),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Sí, pagar todo", confirmar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED),
+            ],
+        )
+        page.show_dialog(dialog)
+
+    def _compra_card(c, tarjeta_actual):
         proxima = next((cu for cu in c.cuotas if not cu.pagada), None)
         acciones = []
         if proxima:
@@ -110,8 +180,8 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                     ),
                     ft.Row(
                         [
-                            components.category_chip(_nombre_categoria(c.categoria_id), theme.TARJETAS_COLOR, "sell_rounded"),
-                            ft.Text("1 pago" if c.cantidad_cuotas == 1 else f"Cuota {c.cuota_actual} de {c.cantidad_cuotas}", size=12, color=theme.TEXT_SECONDARY),
+                            components.category_chip("1 pago" if c.cantidad_cuotas == 1 else f"Cuota {c.cuota_actual} de {c.cantidad_cuotas}", theme.TARJETAS_COLOR, "payments_rounded" if c.cantidad_cuotas == 1 else "calendar_view_month_rounded"),
+                            components.category_chip(tarjeta_actual.nombre, tarjeta_actual.color, "credit_card_rounded") if tarjeta_actual else ft.Container(),
                             ft.Text(f"Restantes: {c.cuotas_restantes}", size=12, color=theme.TEXT_SECONDARY) if c.cantidad_cuotas > 1 else ft.Container(),
                             ft.Text(f"Cuota: {c.monto_cuota.formatted()}", size=12, color=theme.TEXT_SECONDARY) if c.cantidad_cuotas > 1 else ft.Container(),
                             ft.Text(f"Pendiente: {c.monto_pendiente.formatted()}", size=12, weight=ft.FontWeight.W_600, color=theme.EXPENSE_RED),
@@ -125,10 +195,6 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             ),
             padding=16,
         )
-
-    def _nombre_categoria(categoria_id: int) -> str:
-        cat = next((c for c in categorias if c.id == categoria_id), None)
-        return cat.nombre if cat else "Categoría"
 
     def confirmar_pago_compra(cuota_id: int, numero_cuota: int, concepto: str):
         def confirmar(_e):
@@ -226,16 +292,11 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
     def dialogo_editar_compra(compra):
         concepto_f = ft.TextField(label="Concepto", value=compra.concepto, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         detalle_f = ft.TextField(label="Detalle (opcional)", value=compra.detalle, filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
-        categoria_dd = ft.Dropdown(
-            label="Categoría", value=str(compra.categoria_id),
-            options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias],
-            filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
-        )
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def guardar(_e):
             try:
-                tarjeta_service.editar_datos_compra(compra.id, concepto_f.value or "", detalle_f.value or "", int(categoria_dd.value))
+                tarjeta_service.editar_datos_compra(compra.id, concepto_f.value or "", detalle_f.value or "", categoria_tarjeta_id)
             except ValueError as exc:
                 error_text.value = str(exc)
                 error_text.visible = True
@@ -250,7 +311,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             content=ft.Container(
                 ft.Column(
                     [
-                        concepto_f, detalle_f, categoria_dd, error_text,
+                        concepto_f, detalle_f, error_text,
                         ft.Text("El monto y la cantidad de cuotas no se pueden editar.", size=11, color=theme.TEXT_MUTED, italic=True),
                     ],
                     spacing=12, tight=True,
@@ -304,7 +365,11 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
             border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER,
             helper="Si ya veniás pagando (ej: compraste hace 3 meses), poné en qué cuota estás ahora.",
         )
-        cuotas_container = ft.Column([cuotas_f, cuota_inicial_f], spacing=12, visible=False)
+        cuotas_aviso = ft.Text(
+            "La 1ra cuota vence el mes que viene (no este mes), salvo que indiques que ya veniás pagando.",
+            size=11, color=theme.TEXT_MUTED, italic=True,
+        )
+        cuotas_container = ft.Column([cuotas_f, cuota_inicial_f, cuotas_aviso], spacing=12, visible=False)
 
         def on_tipo_change(_e):
             cuotas_container.visible = "cuotas" in tipo_selector.selected
@@ -312,11 +377,12 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
 
         tipo_selector.on_change = on_tipo_change
 
-        categoria_dd = ft.Dropdown(label="Categoría", value=str(categorias[0].id) if categorias else None, options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def guardar(_e):
             try:
+                if categoria_tarjeta_id is None:
+                    raise ValueError("Falta la categoría base 'Tarjeta de crédito'")
                 tarjeta_id = int(tarjeta_dd.value)
                 tarjeta = next(t for t in tarjetas_disponibles if t.id == tarjeta_id)
                 monto = Money.from_decimal((monto_f.value or "0").replace(",", "."), tarjeta.moneda)
@@ -325,7 +391,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                 cuota_inicial = int(cuota_inicial_f.value or "1") if es_en_cuotas else 1
                 tarjeta_service.registrar_compra(
                     tarjeta_id, fecha_holder["value"], concepto_f.value or "", detalle_f.value or "",
-                    monto, int(categoria_dd.value), cantidad, cuota_inicial,
+                    monto, categoria_tarjeta_id, cantidad, cuota_inicial,
                 )
                 estado["tarjeta_id"] = tarjeta_id
             except (ValueError, ArithmeticError) as exc:
@@ -347,7 +413,7 @@ def build_tarjetas_view(page: ft.Page, tarjeta_service: TarjetaService, categori
                         concepto_f, detalle_f, monto_f,
                         tipo_selector,
                         cuotas_container,
-                        categoria_dd, error_text,
+                        error_text,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),

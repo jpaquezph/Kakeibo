@@ -36,6 +36,10 @@ PRESTAMOS_COLOR = "#1BAF7A"    # verde azulado
 PRESTAMOS_BG = "#E3F6EE"
 HISTORIAL_COLOR = "#C98500"    # ambar
 HISTORIAL_BG = "#FBF0DC"
+CALENDARIO_COLOR = "#2A78D6"   # azul
+CALENDARIO_BG = "#E8F1FC"
+CAMBIO_COLOR = "#0E7C86"       # teal (compra/venta de dólares)
+CAMBIO_BG = "#E3F5F6"
 
 RADIUS = 16
 RADIUS_SM = 10

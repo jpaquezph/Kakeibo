@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import date
 
 from ..domain.models import TipoMovimiento
 from ..domain.money import Money, Moneda
@@ -42,12 +43,22 @@ class TotalTarjeta:
 
 
 @dataclass
+class PagoDelMes:
+    origen: str  # "fijo" | "tarjeta" | "prestamo"
+    concepto: str
+    monto: Money
+    fecha: date
+
+
+@dataclass
 class ResumenDashboard:
     por_moneda: list[ResumenMoneda] = field(default_factory=list)
     por_categoria: list[TotalCategoria] = field(default_factory=list)
     por_tarjeta: list[TotalTarjeta] = field(default_factory=list)
     prestamos_pendientes_ars: Money = None
     prestamos_pendientes_usd: Money = None
+    prestamos_pendientes_cantidad: int = 0
+    pagado_este_mes: list[PagoDelMes] = field(default_factory=list)
 
 
 class DashboardService:
@@ -82,7 +93,50 @@ class DashboardService:
             else:
                 resumen.prestamos_pendientes_usd = monto
 
+        resumen.prestamos_pendientes_cantidad = self._conn.execute(
+            "SELECT COUNT(*) AS total FROM prestamos WHERE estado = 'activo'"
+        ).fetchone()["total"]
+
+        hoy = date.today()
+        resumen.pagado_este_mes = self.pagado_del_mes(hoy.year, hoy.month)
+
         return resumen
+
+    def pagado_del_mes(self, anio: int, mes: int) -> list[PagoDelMes]:
+        """Gastos fijos, cuotas de tarjeta y cuotas de prestamo pagados en ese mes."""
+        anio_s, mes_s = f"{anio:04d}", f"{mes:02d}"
+        pagos: list[PagoDelMes] = []
+
+        for r in self._conn.execute(
+            """SELECT concepto, monto_centavos, moneda, fecha FROM movimientos
+               WHERE fijo = 1 AND tipo = 'egreso'
+                 AND strftime('%Y', fecha) = ? AND strftime('%m', fecha) = ?""",
+            (anio_s, mes_s),
+        ):
+            pagos.append(PagoDelMes("fijo", r["concepto"], Money(r["monto_centavos"], r["moneda"]), date.fromisoformat(r["fecha"])))
+
+        for r in self._conn.execute(
+            """SELECT t.nombre AS tarjeta_nombre, co.concepto AS concepto, cc.monto_centavos, co.moneda, cc.fecha_pago
+               FROM cuotas_compra cc
+               JOIN compras co ON co.id = cc.compra_id
+               JOIN tarjetas t ON t.id = co.tarjeta_id
+               WHERE cc.pagada = 1 AND strftime('%Y', cc.fecha_pago) = ? AND strftime('%m', cc.fecha_pago) = ?""",
+            (anio_s, mes_s),
+        ):
+            concepto = f"{r['tarjeta_nombre']}: {r['concepto']}"
+            pagos.append(PagoDelMes("tarjeta", concepto, Money(r["monto_centavos"], r["moneda"]), date.fromisoformat(r["fecha_pago"])))
+
+        for r in self._conn.execute(
+            """SELECT p.nombre AS concepto, cp.monto_centavos, p.moneda, cp.fecha_pago
+               FROM cuotas_prestamo cp
+               JOIN prestamos p ON p.id = cp.prestamo_id
+               WHERE cp.pagada = 1 AND strftime('%Y', cp.fecha_pago) = ? AND strftime('%m', cp.fecha_pago) = ?""",
+            (anio_s, mes_s),
+        ):
+            pagos.append(PagoDelMes("prestamo", r["concepto"], Money(r["monto_centavos"], r["moneda"]), date.fromisoformat(r["fecha_pago"])))
+
+        pagos.sort(key=lambda p: p.fecha, reverse=True)
+        return pagos
 
     def _sumar_movimientos(self, tipo: TipoMovimiento, moneda: Moneda) -> Money:
         row = self._conn.execute(
