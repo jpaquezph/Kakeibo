@@ -10,14 +10,17 @@ import flet as ft
 from ...app.auth.service import AuthService
 from ...app.database import DEFAULT_DB_PATH
 from ...app.repositories.categorias import CategoriaRepository
+from ...app.services.asistente import AsistenteIAService
 from ...app.services.backup import crear_backup
 from ...app.services.cambio import CambioDivisaService
+from ...app.services.config import ConfigService
 from ...app.services.dashboard import DashboardService
 from ...app.services.gastos_fijos import GastoFijoService
 from ...app.services.movimientos import MovimientoService
 from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
 from .. import theme
+from .asistente_view import build_asistente_view
 from .calendario_view import build_calendario_view
 from .dashboard_view import build_dashboard_view
 from .gastos_fijos_view import build_gastos_fijos_view
@@ -92,6 +95,7 @@ _SECTIONS = [
     ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
     ("calendario", "calendar_month_rounded", "Calendario", theme.CALENDARIO_COLOR, theme.CALENDARIO_BG),
     ("historial", "history_rounded", "Historial", theme.HISTORIAL_COLOR, theme.HISTORIAL_BG),
+    ("asistente", "smart_toy_rounded", "Asistente", theme.ASISTENTE_COLOR, theme.ASISTENTE_BG),
 ]
 
 
@@ -103,6 +107,8 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
     dashboard_service = DashboardService(conn)
     cambio_service = CambioDivisaService(conn)
     gasto_fijo_service = GastoFijoService(conn)
+    config_service = ConfigService(conn)
+    asistente_service = AsistenteIAService(config_service)
 
     shell_container = ft.Container(expand=True)
     estado = {"seccion": "dashboard"}
@@ -120,6 +126,11 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
             return build_calendario_view(page, tarjeta_service, prestamo_service, gasto_fijo_service)
         if seccion == "historial":
             return build_historial_view(page, movimiento_service, categoria_repo)
+        if seccion == "asistente":
+            return build_asistente_view(
+                page, asistente_service, config_service, dashboard_service,
+                movimiento_service, gasto_fijo_service, prestamo_service, tarjeta_service, categoria_repo,
+            )
         return build_dashboard_view(page, dashboard_service, cambio_service)
 
     def cambiar_seccion(key: str):

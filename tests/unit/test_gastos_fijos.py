@@ -86,3 +86,26 @@ def test_proximas_ocurrencias_marca_las_ya_registradas(conn):
     assert len(ocurrencias) == 1
     assert ocurrencias[0].ya_registrado is True
     assert ocurrencias[0].fecha == date(2026, 3, 5)
+
+
+def test_eliminar_gasto_fijo_sin_pagos(conn):
+    service = GastoFijoService(conn)
+    gasto = service.registrar("Netflix", "", Money.from_decimal("4000", Moneda.ARS), _categoria_id(conn), 8)
+
+    service.eliminar(gasto.id)
+
+    assert gasto.id not in [g.id for g in service.listar(solo_activos=True)]
+
+
+def test_eliminar_gasto_fijo_con_pagos_ya_registrados_no_rompe_fk(conn):
+    """Regresion: eliminar() hacia un DELETE fisico, que fallaba con
+    'FOREIGN KEY constraint failed' apenas el gasto fijo tenia algun
+    movimiento generado (el caso normal de uso)."""
+    service = GastoFijoService(conn)
+    gasto = service.registrar("Alquiler", "", Money.from_decimal("100000", Moneda.ARS), _categoria_id(conn), 10)
+    service.generar_movimiento_del_mes(gasto.id, date(2026, 3, 20))
+
+    service.eliminar(gasto.id)
+
+    assert gasto.id not in [g.id for g in service.listar(solo_activos=True)]
+    assert service.obtener(gasto.id) is not None, "el registro debe seguir existiendo (borrado logico)"

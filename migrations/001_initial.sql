@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS prestamos (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS configuracion (
+    clave TEXT PRIMARY KEY,
+    valor TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS cuotas_prestamo (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     prestamo_id INTEGER NOT NULL REFERENCES prestamos(id) ON DELETE CASCADE,

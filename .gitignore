@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 kakeibo.db
 kakeibo_debug.log
+kakeibo_run.log
 *.pre_restore.db
 backups/
 build/

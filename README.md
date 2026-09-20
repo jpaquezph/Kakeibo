@@ -20,6 +20,37 @@ La primera vez que se ejecuta, la app pide crear un usuario y contraseña
 (no hay usuarios por defecto). Las credenciales se guardan con hash
 PBKDF2-HMAC-SHA256 + sal, nunca en texto plano.
 
+## Asistente financiero (IA local, sin API ni costo)
+
+La sección "Asistente" responde preguntas en lenguaje natural sobre los
+propios datos del usuario (movimientos, categorías, tarjetas, préstamos,
+gastos fijos). Corre 100% local con [Ollama](https://ollama.com/): no usa
+ninguna API paga, no requiere API key y los datos financieros nunca salen
+de la PC del usuario.
+
+Requisitos (una sola vez, en la máquina donde se usa la app):
+
+```bash
+winget install --id Ollama.Ollama
+ollama pull llama3.2:3b
+```
+
+Ollama queda corriendo en segundo plano en `http://localhost:11434`. La
+sección Asistente muestra un aviso si no lo detecta corriendo o si el
+modelo todavía no está descargado, con la solución sugerida. El modelo y
+el host son configurables desde el ícono de engranaje (por si se quiere
+usar un modelo más grande/mejor, como `llama3.1:8b` o `qwen2.5:7b`, a
+costa de respuestas más lentas sin GPU).
+
+- La recuperación de contexto (la parte "RAG") no usa embeddings/vector
+  store: al ser datos tabulares, arma el contexto con agregados SQL
+  (totales históricos por categoría/tarjeta) más los movimientos del
+  período que la pregunta menciona, acotados a un máximo de filas para que
+  no crezca sin límite con los años. Es de solo consulta: no crea, edita
+  ni borra nada.
+- Sin Ollama corriendo, el resto de la app funciona exactamente igual que
+  antes (100% local, sin conexión).
+
 ## Tests
 
 ```bash

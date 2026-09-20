@@ -39,7 +39,10 @@ class GastoFijoRepository:
         self._conn.commit()
 
     def eliminar(self, gasto_fijo_id: int) -> None:
-        self._conn.execute("DELETE FROM gastos_fijos WHERE id = ?", (gasto_fijo_id,))
+        """Borrado logico: los movimientos ya generados referencian este id
+        por clave foranea, asi que un DELETE fisico rompe con
+        'FOREIGN KEY constraint failed' en cuanto el gasto tuvo algun pago."""
+        self._conn.execute("UPDATE gastos_fijos SET activo = 0 WHERE id = ?", (gasto_fijo_id,))
         self._conn.commit()
 
     def listar(self, solo_activos: bool = True) -> list[GastoFijo]:
