@@ -29,3 +29,14 @@ def leer_log(max_caracteres: int = 20000) -> str:
             + contenido[-max_caracteres:]
         )
     return contenido
+
+
+def ultimo_error() -> str | None:
+    """Ultima linea de excepcion registrada (ej: "ValueError: monto invalido"),
+    o None si todavia no hay errores. Es lo que se muestra en Configuracion;
+    el detalle completo queda en el archivo."""
+    for linea in reversed(leer_log().splitlines()):
+        linea = linea.strip()
+        if linea and not linea.startswith(("---", "[")):
+            return linea
+    return None

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sqlite3
 
+CLAVE_TEMA = "tema"  # "claro" | "oscuro"
+
 
 class ConfigService:
     """Configuracion clave/valor guardada en la base local. Se guarda en texto plano en el

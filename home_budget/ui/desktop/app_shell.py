@@ -12,7 +12,7 @@ from ...app.database import DEFAULT_DB_PATH
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.backup import crear_backup
 from ...app.services.cambio import CambioDivisaService
-from ...app.services.config import ConfigService
+from ...app.services.config import CLAVE_TEMA, ConfigService
 from ...app.services.dashboard import DashboardService
 from ...app.services.gastos_fijos import GastoFijoService
 from ...app.services.movimientos import MovimientoService
@@ -86,16 +86,18 @@ def _elegir_carpeta_backup() -> str | None:
         _CoTaskMemFree(pidl)
 
 
-_SECTIONS = [
-    ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
-    ("movimientos", "swap_vert_rounded", "Movimientos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
-    ("gastos_fijos", "event_repeat_rounded", "Gastos fijos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
-    ("tarjetas", "credit_card_rounded", "Tarjetas", theme.TARJETAS_COLOR, theme.TARJETAS_BG),
-    ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
-    ("calendario", "calendar_month_rounded", "Calendario", theme.CALENDARIO_COLOR, theme.CALENDARIO_BG),
-    ("historial", "history_rounded", "Historial", theme.HISTORIAL_COLOR, theme.HISTORIAL_BG),
-    ("configuracion", "settings_rounded", "Configuración", theme.CONFIG_COLOR, theme.CONFIG_BG),
-]
+def _secciones():
+    # Se arma al momento (no a nivel de modulo) para tomar la paleta activa.
+    return [
+        ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
+        ("movimientos", "swap_vert_rounded", "Movimientos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
+        ("gastos_fijos", "event_repeat_rounded", "Gastos fijos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
+        ("tarjetas", "credit_card_rounded", "Tarjetas", theme.TARJETAS_COLOR, theme.TARJETAS_BG),
+        ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
+        ("calendario", "calendar_month_rounded", "Calendario", theme.CALENDARIO_COLOR, theme.CALENDARIO_BG),
+        ("historial", "history_rounded", "Historial", theme.HISTORIAL_COLOR, theme.HISTORIAL_BG),
+        ("configuracion", "settings_rounded", "Configuración", theme.CONFIG_COLOR, theme.CONFIG_BG),
+    ]
 
 
 def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Control:
@@ -125,7 +127,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         if seccion == "historial":
             return build_historial_view(page, movimiento_service, categoria_repo)
         if seccion == "configuracion":
-            return build_configuracion_view(page, config_service)
+            return build_configuracion_view(page, config_service, cambiar_tema)
         return build_dashboard_view(page, dashboard_service, cambio_service)
 
     def cambiar_seccion(key: str):
@@ -143,6 +145,13 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
                 f.write("\n")
             raise
         page.update()
+
+    def cambiar_tema(oscuro: bool):
+        config_service.guardar(CLAVE_TEMA, "oscuro" if oscuro else "claro")
+        theme.aplicar_modo(oscuro)
+        page.theme_mode = ft.ThemeMode.DARK if oscuro else ft.ThemeMode.LIGHT
+        page.bgcolor = theme.PAGE_BG
+        cambiar_seccion(estado["seccion"])
 
     def salir(_e=None):
         auth.logout()
@@ -174,7 +183,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
 
 
 def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup) -> ft.Control:
-    nav_items = [_nav_button(key, icon, label, color, bg, estado["seccion"] == key, cambiar_seccion) for key, icon, label, color, bg in _SECTIONS]
+    nav_items = [_nav_button(key, icon, label, color, bg, estado["seccion"] == key, cambiar_seccion) for key, icon, label, color, bg in _secciones()]
 
     sidebar = ft.Container(
         content=ft.Column(
