@@ -108,3 +108,18 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
         border=theme.border_all(1, theme.BORDER),
         margin=theme.margin_only(bottom=8),
     )
+
+
+AVATAR_COLOR_DEFECTO = "#898781"  # gris
+AVATAR_COLORES = [AVATAR_COLOR_DEFECTO, "#4A3AA7", "#2A78D6", "#0E7C86", "#1BAF7A", "#C98500", "#EB6834", "#D6467E"]
+
+
+def avatar(perfil, radio: int = 14) -> ft.CircleAvatar:
+    """Imagen de perfil del usuario, o su inicial sobre su color si no subio una."""
+    inicial = (perfil.username[:1] or "?").upper()
+    return ft.CircleAvatar(
+        content=ft.Text(inicial, size=radio * 0.9, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+        foreground_image_src=perfil.avatar_imagen,
+        bgcolor=perfil.avatar_color or AVATAR_COLOR_DEFECTO,
+        radius=radio,
+    )

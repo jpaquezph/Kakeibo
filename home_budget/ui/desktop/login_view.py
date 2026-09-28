@@ -6,7 +6,8 @@ from ...app.auth.service import PREGUNTAS_SECRETAS, AuthError, AuthService
 from .. import theme
 
 
-def build_login_view(page: ft.Page, auth: AuthService, on_success) -> ft.Control:
+def build_login_view(page: ft.Page, auth: AuthService, on_success, usuario_inicial: str | None = None) -> ft.Control:
+    """`usuario_inicial` precarga el usuario (al cambiar de usuario desde la app)."""
     primer_uso = not auth.hay_usuarios()
     tarjeta = ft.Container()
     shell = ft.Container(
@@ -23,7 +24,7 @@ def build_login_view(page: ft.Page, auth: AuthService, on_success) -> ft.Control
     if primer_uso:
         mostrar(_vista_signup(page, auth, on_success, mostrar))
     else:
-        mostrar(_vista_login(page, auth, on_success, mostrar))
+        mostrar(_vista_login(page, auth, on_success, mostrar, usuario_inicial))
 
     return shell
 
@@ -115,9 +116,9 @@ def _vista_signup(page, auth, on_success, mostrar, permitir_volver: bool = False
     )
 
 
-def _vista_login(page, auth, on_success, mostrar) -> ft.Control:
-    username_field = _campo("Usuario", autofocus=True)
-    password_field = _campo("Contraseña", password=True, can_reveal_password=True)
+def _vista_login(page, auth, on_success, mostrar, usuario_inicial: str | None = None) -> ft.Control:
+    username_field = _campo("Usuario", value=usuario_inicial or "", autofocus=not usuario_inicial)
+    password_field = _campo("Contraseña", password=True, can_reveal_password=True, autofocus=bool(usuario_inicial))
     error_text = ft.Text("", color=theme.EXPENSE_RED, size=13, visible=False)
 
     def mostrar_error(mensaje: str) -> None:
@@ -350,52 +351,100 @@ def _vista_recuperar_exito(page, auth, mostrar) -> ft.Control:
 
 
 def build_lock_view(page: ft.Page, auth: AuthService, on_unlock) -> ft.Control:
+    """Bloqueo por inactividad. Si el usuario configuro un PIN se pide el PIN
+    (con opcion de usar la contrasena); tras varios PIN errados, solo contrasena."""
     session = auth.session
-    password_field = ft.TextField(
-        label="Contraseña",
-        password=True,
-        can_reveal_password=True,
-        autofocus=True,
-        border_radius=theme.RADIUS_SM,
-        border_color=theme.BORDER,
-        focused_border_color=theme.DASHBOARD_COLOR,
-        filled=True,
-        bgcolor=theme.SURFACE_ALT,
-        width=320,
+    tarjeta = ft.Container()
+
+    def mostrar(usar_pin: bool):
+        tarjeta.content = theme.card(_contenido_lock(page, auth, session, on_unlock, usar_pin, mostrar), padding=36)
+        page.update()
+
+    tarjeta.content = theme.card(
+        _contenido_lock(page, auth, session, on_unlock, auth.puede_desbloquear_con_pin(), mostrar), padding=36
     )
+    return ft.Container(
+        content=ft.Row([tarjeta], alignment=ft.MainAxisAlignment.CENTER),
+        alignment=ft.Alignment.CENTER,
+        expand=True,
+        bgcolor=theme.PAGE_BG,
+    )
+
+
+def _contenido_lock(page, auth: AuthService, session, on_unlock, usar_pin: bool, mostrar) -> ft.Control:
     error_text = ft.Text("", color=theme.EXPENSE_RED, size=13, visible=False)
 
-    def submit(_e=None):
-        try:
-            auth.login(session.username, password_field.value or "")
-        except AuthError:
-            error_text.value = "Contraseña incorrecta"
-            error_text.visible = True
-            page.update()
-            return
-        on_unlock()
+    def mostrar_error(mensaje: str):
+        error_text.value = mensaje
+        error_text.visible = True
+        page.update()
 
-    password_field.on_submit = submit
+    if usar_pin:
+        campo = ft.TextField(
+            label="PIN", password=True, autofocus=True, max_length=4, width=200,
+            input_filter=ft.NumbersOnlyInputFilter(), keyboard_type=ft.KeyboardType.NUMBER,
+            text_align=ft.TextAlign.CENTER, text_size=22,
+            border_radius=theme.RADIUS_SM, border_color=theme.BORDER, focused_border_color=theme.DASHBOARD_COLOR,
+            filled=True, bgcolor=theme.SURFACE_ALT,
+        )
 
-    card_content = ft.Column(
+        def submit(_e=None):
+            try:
+                auth.desbloquear_con_pin(campo.value or "")
+            except AuthError as exc:
+                campo.value = ""
+                if not auth.puede_desbloquear_con_pin():
+                    mostrar(False)  # demasiados intentos: pasa a contrasena
+                    return
+                mostrar_error(str(exc))
+                return
+            on_unlock()
+
+        def on_change(_e):
+            if len(campo.value or "") == 4:
+                submit()
+
+        campo.on_change = on_change
+        campo.on_submit = submit
+        instruccion = f"Ingresá tu PIN para continuar, {session.username}."
+        alternativa = ft.TextButton("Usar contraseña", on_click=lambda e: mostrar(False), style=ft.ButtonStyle(color=theme.TEXT_SECONDARY))
+    else:
+        campo = ft.TextField(
+            label="Contraseña", password=True, can_reveal_password=True, autofocus=True, width=320,
+            border_radius=theme.RADIUS_SM, border_color=theme.BORDER, focused_border_color=theme.DASHBOARD_COLOR,
+            filled=True, bgcolor=theme.SURFACE_ALT,
+        )
+
+        def submit(_e=None):
+            try:
+                auth.login(session.username, campo.value or "")
+            except AuthError:
+                mostrar_error("Contraseña incorrecta")
+                return
+            on_unlock()
+
+        campo.on_submit = submit
+        instruccion = f"Ingresá tu contraseña para continuar, {session.username}."
+        alternativa = (
+            ft.TextButton("Usar PIN", on_click=lambda e: mostrar(True), style=ft.ButtonStyle(color=theme.TEXT_SECONDARY))
+            if auth.puede_desbloquear_con_pin() else ft.Container()
+        )
+        if auth.obtener_perfil(session.usuario_id).tiene_pin and not auth.puede_desbloquear_con_pin():
+            instruccion = "Demasiados intentos con el PIN. Ingresá tu contraseña para continuar."
+
+    return ft.Column(
         [
             ft.Icon(ft.Icons.LOCK_ROUNDED, size=40, color=theme.DASHBOARD_COLOR),
             ft.Text("Sesión bloqueada por inactividad", size=18, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
-            ft.Text(f"Ingresá tu contraseña para continuar, {session.username}.", size=13, color=theme.TEXT_SECONDARY),
+            ft.Text(instruccion, size=13, color=theme.TEXT_SECONDARY, text_align=ft.TextAlign.CENTER),
             ft.Container(height=8),
-            password_field,
+            campo,
             error_text,
             ft.Container(height=8),
             theme.primary_button("Desbloquear", submit, color=theme.DASHBOARD_COLOR, icon=ft.Icons.LOCK_OPEN_ROUNDED, width=320),
+            alternativa,
         ],
         spacing=12,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         width=360,
-    )
-
-    return ft.Container(
-        content=ft.Row([theme.card(card_content, padding=36)], alignment=ft.MainAxisAlignment.CENTER),
-        alignment=ft.Alignment.CENTER,
-        expand=True,
-        bgcolor=theme.PAGE_BG,
     )

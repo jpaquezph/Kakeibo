@@ -5,21 +5,27 @@ from typing import Callable
 
 import flet as ft
 
+from ...app.auth.service import AuthService
 from ...app.services.config import ConfigService
 from ...app.services.logs import ruta_log, ultimo_error
 from .. import theme
+from .usuario_config import build_usuario_card
 
 
 def build_configuracion_view(
     page: ft.Page,
     config_service: ConfigService,
+    auth: AuthService,
     on_cambiar_tema: Callable[[bool], None],
+    on_perfil_cambiado: Callable[[str], None],
 ) -> ft.Control:
     # config_service queda disponible para las proximas opciones de configuracion.
     return ft.Column(
         [
             ft.Text("Configuración", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Container(height=8),
+            build_usuario_card(page, auth, on_perfil_cambiado),
+            ft.Container(height=14),
             _apariencia_card(on_cambiar_tema),
             ft.Container(height=14),
             _registro_errores_card(page),

@@ -21,6 +21,7 @@ from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
 from ...app.services.vencimientos import VencimientoService
 from .. import theme
+from . import components
 from .calendario_view import build_calendario_view
 from .configuracion_view import build_configuracion_view
 from .dashboard_view import build_dashboard_view
@@ -29,7 +30,7 @@ from .historial_view import build_historial_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
 from .tarjetas_view import build_tarjetas_view
-from .vencimientos_aviso import build_aviso_vencimientos
+from .vencimientos_aviso import build_aviso_minimizado, build_aviso_vencimientos
 
 
 class _BrowseInfo(ctypes.Structure):
@@ -116,7 +117,10 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
     vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
 
     shell_container = ft.Container(expand=True)
-    estado = {"seccion": "dashboard", "aviso_abierto": mostrar_aviso_vencimientos}
+    # aviso: "abierto" | "minimizado" | "cerrado". "contenido" es la vista de
+    # la seccion actual: se reutiliza al minimizar/expandir el aviso para no
+    # perder lo que el usuario estaba cargando.
+    estado = {"seccion": "dashboard", "aviso": "abierto" if mostrar_aviso_vencimientos else "cerrado", "contenido": None}
 
     def contenido_para(seccion: str) -> ft.Control:
         if seccion == "movimientos":
@@ -132,7 +136,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         if seccion == "historial":
             return build_historial_view(page, movimiento_service, categoria_repo)
         if seccion == "configuracion":
-            return build_configuracion_view(page, config_service, cambiar_tema)
+            return build_configuracion_view(page, config_service, auth, cambiar_tema, perfil_cambiado)
         return build_dashboard_view(page, dashboard_service, cambio_service)
 
     def cambiar_seccion(key: str):
@@ -141,6 +145,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         estado["seccion"] = key
         page.overlay.clear()
         try:
+            estado["contenido"] = contenido_para(key)
             shell_container.content = montar()
         except Exception:
             import traceback
@@ -158,9 +163,29 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         page.bgcolor = theme.PAGE_BG
         cambiar_seccion(estado["seccion"])
 
-    def salir(_e=None):
+    def perfil_cambiado(mensaje: str):
+        # Se reconstruye todo porque la barra lateral muestra nombre y avatar.
+        cambiar_seccion(estado["seccion"])
+        page.show_dialog(ft.SnackBar(ft.Text(mensaje)))
+
+    def salir(_e=None, usuario_siguiente: str | None = None):
         auth.logout()
-        on_logout()
+        on_logout(usuario_siguiente)
+
+    def cambiar_usuario(username: str):
+        def confirmar(_e):
+            page.pop_dialog()
+            salir(usuario_siguiente=username)
+
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Cambiar de usuario"),
+            content=ft.Text(f'¿Querés cambiar al usuario "{username}"? Se va a cerrar tu sesión y vas a tener que ingresar su contraseña.'),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Cambiar", confirmar, color=theme.DASHBOARD_COLOR, icon=ft.Icons.SWITCH_ACCOUNT_ROUNDED),
+            ],
+        ))
 
     async def hacer_backup(_e=None):
         loop = asyncio.get_event_loop()
@@ -184,29 +209,35 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         page.show_dialog(dialog)
 
     def montar() -> ft.Control:
-        """Layout de la seccion actual, con el aviso de vencimientos flotando
-        encima mientras siga abierto (sobrevive a los cambios de seccion)."""
-        capas = [_build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)]
-        if estado["aviso_abierto"]:
-            hoy = date.today()
+        """Layout de la seccion actual mas el aviso de vencimientos, que
+        sobrevive a los cambios de seccion. Abierto flota encima del
+        contenido; minimizado va en una franja propia debajo, sin taparlo."""
+        hoy = date.today()
+        pendientes = []
+        if estado["aviso"] != "cerrado":
             pendientes = vencimiento_service.pendientes_del_mes(hoy.year, hoy.month)
-            if pendientes:
-                capas.append(build_aviso_vencimientos(pendientes, hoy, cerrar_aviso))
-            else:
-                estado["aviso_abierto"] = False
+            if not pendientes:
+                estado["aviso"] = "cerrado"
+
+        pie = None
+        if estado["aviso"] == "minimizado":
+            pie = build_aviso_minimizado(len(pendientes), hoy, lambda: cambiar_aviso("abierto"), lambda: cambiar_aviso("cerrado"))
+        capas = [_build_layout(estado, cambiar_seccion, estado["contenido"], auth, salir, hacer_backup, cambiar_usuario, pie)]
+        if estado["aviso"] == "abierto":
+            capas.append(build_aviso_vencimientos(pendientes, hoy, lambda: cambiar_aviso("cerrado"), lambda: cambiar_aviso("minimizado")))
         return ft.Stack(capas, expand=True)
 
-    def cerrar_aviso():
-        estado["aviso_abierto"] = False
-        capas = shell_container.content.controls
-        del capas[1:]
+    def cambiar_aviso(nuevo: str):
+        estado["aviso"] = nuevo
+        shell_container.content = montar()
         shell_container.update()
 
+    estado["contenido"] = contenido_para(estado["seccion"])
     shell_container.content = montar()
     return shell_container
 
 
-def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup) -> ft.Control:
+def _build_layout(estado, cambiar_seccion, contenido: ft.Control, auth, salir, hacer_backup, cambiar_usuario, pie: ft.Control | None = None) -> ft.Control:
     nav_items = [_nav_button(key, icon, label, color, bg, estado["seccion"] == key, cambiar_seccion) for key, icon, label, color, bg in _secciones()]
 
     sidebar = ft.Container(
@@ -236,7 +267,7 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_ba
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Row([ft.Icon(ft.Icons.ACCOUNT_CIRCLE_ROUNDED, color=theme.TEXT_SECONDARY, size=18), ft.Text(auth.session.username, size=13, color=theme.TEXT_SECONDARY)], spacing=6),
+                            _selector_usuario(auth, cambiar_usuario),
                             ft.TextButton("Cerrar sesión", icon=ft.Icons.LOGOUT_ROUNDED, on_click=salir, style=ft.ButtonStyle(color=theme.EXPENSE_RED)),
                         ],
                         spacing=8,
@@ -251,9 +282,41 @@ def _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_ba
         border=theme.border_right(1, theme.BORDER),
     )
 
-    content_area = ft.Container(content=contenido_para(estado["seccion"]), expand=True, padding=28, bgcolor=theme.PAGE_BG)
+    if pie is not None:
+        contenido = ft.Column(
+            [ft.Container(contenido, expand=True), ft.Row([pie], alignment=ft.MainAxisAlignment.END)],
+            spacing=12, expand=True,
+        )
+    content_area = ft.Container(content=contenido, expand=True, padding=28, bgcolor=theme.PAGE_BG)
 
     return ft.Row([sidebar, content_area], expand=True, spacing=0)
+
+
+def _selector_usuario(auth, cambiar_usuario) -> ft.Control:
+    """Nombre del usuario en la barra lateral; al tocarlo despliega todos los
+    usuarios para cambiar de cuenta (el actual aparece tildado)."""
+    actual = auth.session.username
+    items = [ft.PopupMenuItem(content=ft.Text("Cambiar de usuario", size=11, color=theme.TEXT_MUTED), height=32)]
+    for username in auth.listar_usernames():
+        es_actual = username == actual
+        items.append(ft.PopupMenuItem(
+            content=ft.Text(username, size=13, weight=ft.FontWeight.W_600 if es_actual else ft.FontWeight.NORMAL),
+            icon=ft.Icons.CHECK_ROUNDED if es_actual else ft.Icons.PERSON_OUTLINE_ROUNDED,
+            on_click=None if es_actual else (lambda e, u=username: cambiar_usuario(u)),
+        ))
+    return ft.PopupMenuButton(
+        content=ft.Row(
+            [
+                components.avatar(auth.obtener_perfil(auth.session.usuario_id), radio=14),
+                ft.Text(actual, size=13, color=theme.TEXT_SECONDARY, expand=True, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
+                ft.Icon(ft.Icons.UNFOLD_MORE_ROUNDED, size=16, color=theme.TEXT_MUTED),
+            ],
+            spacing=8,
+        ),
+        items=items,
+        tooltip="Cambiar de usuario",
+        menu_position=ft.PopupMenuPosition.OVER,
+    )
 
 
 def _nav_button(key, icon, label, color, bg, is_active, on_click):

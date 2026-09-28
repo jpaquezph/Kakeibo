@@ -1,5 +1,6 @@
-"""Aviso flotante (abajo a la derecha) con los vencimientos pendientes del
-mes en curso. Aparece al abrir la app y solo se cierra con la cruz."""
+"""Aviso (abajo a la derecha) con los vencimientos pendientes del mes en
+curso. Aparece al abrir la app y solo se cierra con la cruz. Minimizado
+queda solo el titulo, en una franja propia que no tapa el contenido."""
 from __future__ import annotations
 
 from datetime import date
@@ -49,7 +50,17 @@ def _fila(v: Vencimiento, hoy: date) -> ft.Control:
     )
 
 
-def build_aviso_vencimientos(vencimientos: list[Vencimiento], hoy: date, on_cerrar: Callable[[], None]) -> ft.Control:
+def _titulo(hoy: date) -> str:
+    return f"Vencimientos de {_MESES[hoy.month - 1]}"
+
+
+def _boton(icono, tooltip: str, on_click: Callable[[], None]) -> ft.IconButton:
+    return ft.IconButton(icon=icono, icon_size=18, icon_color=theme.TEXT_SECONDARY, tooltip=tooltip, on_click=lambda e: on_click())
+
+
+def build_aviso_vencimientos(
+    vencimientos: list[Vencimiento], hoy: date, on_cerrar: Callable[[], None], on_minimizar: Callable[[], None]
+) -> ft.Control:
     lista = ft.Column([_fila(v, hoy) for v in vencimientos], spacing=10, scroll=ft.ScrollMode.AUTO)
     # Alto fijo solo si la lista no entra: asi con pocos vencimientos el aviso queda compacto.
     alto_estimado = len(vencimientos) * 44
@@ -61,13 +72,11 @@ def build_aviso_vencimientos(vencimientos: list[Vencimiento], hoy: date, on_cerr
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=18, color=theme.CALENDARIO_COLOR),
-                        ft.Text(f"Vencimientos de {_MESES[hoy.month - 1]}", size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE_ROUNDED, icon_size=18, icon_color=theme.TEXT_SECONDARY,
-                            tooltip="Cerrar", on_click=lambda e: on_cerrar(),
-                        ),
+                        ft.Text(_titulo(hoy), size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, expand=True),
+                        _boton(ft.Icons.REMOVE_ROUNDED, "Minimizar", on_minimizar),
+                        _boton(ft.Icons.CLOSE_ROUNDED, "Cerrar", on_cerrar),
                     ],
-                    spacing=8,
+                    spacing=0,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Text(f"{len(vencimientos)} pendiente(s) de pago este mes", size=12, color=theme.TEXT_SECONDARY),
@@ -85,4 +94,26 @@ def build_aviso_vencimientos(vencimientos: list[Vencimiento], hoy: date, on_cerr
         shadow=ft.BoxShadow(blur_radius=24, color=ft.Colors.with_opacity(0.18, "#000000"), offset=ft.Offset(0, 6)),
         right=24,
         bottom=24,
+    )
+
+
+def build_aviso_minimizado(
+    cantidad: int, hoy: date, on_expandir: Callable[[], None], on_cerrar: Callable[[], None]
+) -> ft.Control:
+    """Solo el titulo; tocandolo se vuelve a expandir."""
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.NOTIFICATIONS_ACTIVE_ROUNDED, size=16, color=theme.CALENDARIO_COLOR),
+                ft.Text(f"{_titulo(hoy)} ({cantidad})", size=13, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                _boton(ft.Icons.OPEN_IN_FULL_ROUNDED, "Expandir", on_expandir),
+                _boton(ft.Icons.CLOSE_ROUNDED, "Cerrar", on_cerrar),
+            ],
+            spacing=4, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        bgcolor=theme.SURFACE,
+        border=theme.border_all(1, theme.BORDER),
+        border_radius=theme.RADIUS_SM,
+        padding=theme.pad_only(left=12, right=4),
+        on_click=lambda e: on_expandir(),
     )

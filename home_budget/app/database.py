@@ -50,6 +50,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_categoria_tipo_column(conn)
     _ensure_tarjeta_color_column(conn)
     _ensure_usuario_recuperacion_columnas(conn)
+    _ensure_usuario_perfil_columnas(conn)
     _ensure_movimiento_gasto_fijo_column(conn)
     _seed_categorias(conn)
     conn.commit()
@@ -78,6 +79,19 @@ def _ensure_usuario_recuperacion_columnas(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_hash TEXT NOT NULL DEFAULT ''")
     if "respuesta_salt" not in columnas:
         conn.execute("ALTER TABLE usuarios ADD COLUMN respuesta_salt TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_usuario_perfil_columnas(conn: sqlite3.Connection) -> None:
+    """Agrega las columnas del perfil (avatar y PIN de desbloqueo) si faltan."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(usuarios)")}
+    if "avatar_color" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN avatar_color TEXT NOT NULL DEFAULT ''")
+    if "avatar_imagen" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN avatar_imagen BLOB")
+    if "pin_hash" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN pin_hash TEXT NOT NULL DEFAULT ''")
+    if "pin_salt" not in columnas:
+        conn.execute("ALTER TABLE usuarios ADD COLUMN pin_salt TEXT NOT NULL DEFAULT ''")
 
 
 def _ensure_movimiento_gasto_fijo_column(conn: sqlite3.Connection) -> None:

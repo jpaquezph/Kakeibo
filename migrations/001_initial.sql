@@ -9,6 +9,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
     pregunta_secreta TEXT NOT NULL DEFAULT '',
     respuesta_hash TEXT NOT NULL DEFAULT '',
     respuesta_salt TEXT NOT NULL DEFAULT '',
+    avatar_color TEXT NOT NULL DEFAULT '',
+    avatar_imagen BLOB,
+    pin_hash TEXT NOT NULL DEFAULT '',
+    pin_salt TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

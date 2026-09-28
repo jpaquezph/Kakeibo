@@ -34,7 +34,7 @@ class _Evento:
 def build_calendario_view(page: ft.Page, tarjeta_service: TarjetaService, prestamo_service: PrestamoService, gasto_fijo_service: GastoFijoService) -> ft.Control:
     hoy = date.today()
     estado = {"anio": hoy.year, "mes": hoy.month}
-    root = ft.Column(expand=True, spacing=12)
+    root = ft.Column(expand=True, spacing=12, scroll=ft.ScrollMode.AUTO)
     vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
 
     def eventos_del_mes(anio: int, mes: int) -> dict[int, list[_Evento]]:
@@ -106,7 +106,7 @@ def build_calendario_view(page: ft.Page, tarjeta_service: TarjetaService, presta
 
     def _celda_dia(dia: int, eventos: list[_Evento]) -> ft.Container:
         if dia == 0:
-            return ft.Container(width=140, height=92)
+            return ft.Container(height=92, expand=True)
 
         es_hoy = date(estado["anio"], estado["mes"], dia) == hoy
         chips = [ft.Container(width=8, height=8, bgcolor=ev.color, border_radius=4) for ev in eventos[:4]]
@@ -121,7 +121,7 @@ def build_calendario_view(page: ft.Page, tarjeta_service: TarjetaService, presta
         )
         return ft.Container(
             content=contenido,
-            width=140, height=92,
+            height=92, expand=True,
             padding=8,
             bgcolor=theme.CALENDARIO_BG if es_hoy else theme.SURFACE,
             border=theme.border_all(1, theme.BORDER),
@@ -142,7 +142,7 @@ def build_calendario_view(page: ft.Page, tarjeta_service: TarjetaService, presta
             ],
         )
         encabezado_dias = ft.Row(
-            [ft.Container(ft.Text(d, size=11, color=theme.TEXT_MUTED, weight=ft.FontWeight.W_600), width=140, alignment=ft.Alignment.CENTER) for d in _DIAS_SEMANA],
+            [ft.Container(ft.Text(d, size=11, color=theme.TEXT_MUTED, weight=ft.FontWeight.W_600), expand=True, alignment=ft.Alignment.CENTER) for d in _DIAS_SEMANA],
             spacing=4,
         )
         filas_semana = [

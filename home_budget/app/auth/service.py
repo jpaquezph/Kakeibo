@@ -13,8 +13,11 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
+from .avatar import validar_imagen
+
 PBKDF2_ITERATIONS = 260_000
 DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
+MAX_INTENTOS_PIN = 5  # despues de esto el desbloqueo pide la contrasena
 
 PREGUNTAS_SECRETAS = [
     "¿Cuál es el nombre de tu primera mascota?",
@@ -48,6 +51,7 @@ class Session:
     last_activity: float
     inactivity_timeout: int = DEFAULT_INACTIVITY_TIMEOUT_SECONDS
     locked: bool = False
+    intentos_pin_fallidos: int = 0
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
@@ -58,6 +62,25 @@ class Session:
         if not self.locked and (time.monotonic() - self.last_activity) >= self.inactivity_timeout:
             self.locked = True
         return self.locked
+
+
+@dataclass
+class Perfil:
+    usuario_id: int
+    username: str
+    avatar_color: str  # "" = color por defecto
+    avatar_imagen: bytes | None
+    tiene_pin: bool
+
+
+def _validar_password_nueva(password: str) -> None:
+    if len(password) < 6:
+        raise ValueError("La contrasena debe tener al menos 6 caracteres")
+
+
+def _validar_pin(pin: str) -> None:
+    if len(pin) != 4 or not pin.isdigit():
+        raise ValueError("El PIN tiene que ser de 4 números")
 
 
 class AuthService:
@@ -169,6 +192,93 @@ class AuthService:
         now = time.monotonic()
         self.session = Session(usuario_id=row["id"], username=row["username"], started_at=now, last_activity=now)
         return self.session
+
+    # --- Perfil del usuario logueado (seccion Configuracion > Usuario) ---
+
+    def _verificar_password(self, usuario_id: int, password: str) -> None:
+        row = self._conn.execute("SELECT password_hash, salt FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+        if row is None or not hmac.compare_digest(_hash_password(password, row["salt"]), row["password_hash"]):
+            raise AuthError("La contraseña actual no es correcta")
+
+    def obtener_perfil(self, usuario_id: int) -> Perfil:
+        row = self._conn.execute(
+            "SELECT id, username, avatar_color, avatar_imagen, pin_hash FROM usuarios WHERE id = ?", (usuario_id,)
+        ).fetchone()
+        if row is None:
+            raise AuthError("Usuario inexistente")
+        return Perfil(
+            usuario_id=row["id"], username=row["username"], avatar_color=row["avatar_color"],
+            avatar_imagen=bytes(row["avatar_imagen"]) if row["avatar_imagen"] else None,
+            tiene_pin=bool(row["pin_hash"]),
+        )
+
+    def cambiar_nombre(self, usuario_id: int, nuevo_username: str) -> None:
+        nuevo_username = nuevo_username.strip()
+        if not nuevo_username:
+            raise ValueError("El usuario no puede estar vacio")
+        try:
+            self._conn.execute("UPDATE usuarios SET username = ? WHERE id = ?", (nuevo_username, usuario_id))
+            self._conn.commit()
+        except sqlite3.IntegrityError as exc:
+            raise ValueError("Ese usuario ya existe") from exc
+        if self.session is not None and self.session.usuario_id == usuario_id:
+            self.session.username = nuevo_username
+
+    def cambiar_password(self, usuario_id: int, actual: str, nueva: str) -> None:
+        self._verificar_password(usuario_id, actual)
+        _validar_password_nueva(nueva)
+        salt = secrets.token_hex(16)
+        self._conn.execute(
+            "UPDATE usuarios SET password_hash = ?, salt = ? WHERE id = ?", (_hash_password(nueva, salt), salt, usuario_id)
+        )
+        self._conn.commit()
+
+    def cambiar_avatar_color(self, usuario_id: int, color: str) -> None:
+        self._conn.execute("UPDATE usuarios SET avatar_color = ? WHERE id = ?", (color, usuario_id))
+        self._conn.commit()
+
+    def cambiar_avatar_imagen(self, usuario_id: int, datos: bytes | None) -> None:
+        """Guarda la imagen de perfil (None la quita). Valida formato, peso y tamaño."""
+        if datos is not None:
+            validar_imagen(datos)
+        self._conn.execute("UPDATE usuarios SET avatar_imagen = ? WHERE id = ?", (datos, usuario_id))
+        self._conn.commit()
+
+    def establecer_pin(self, usuario_id: int, password: str, pin: str) -> None:
+        """PIN de 4 numeros para desbloquear la sesion tras inactividad. Pide
+        la contrasena para que nadie lo cambie con la sesion abierta y sola."""
+        self._verificar_password(usuario_id, password)
+        _validar_pin(pin)
+        salt = secrets.token_hex(16)
+        self._conn.execute(
+            "UPDATE usuarios SET pin_hash = ?, pin_salt = ? WHERE id = ?", (_hash_password(pin, salt), salt, usuario_id)
+        )
+        self._conn.commit()
+
+    def quitar_pin(self, usuario_id: int, password: str) -> None:
+        self._verificar_password(usuario_id, password)
+        self._conn.execute("UPDATE usuarios SET pin_hash = '', pin_salt = '' WHERE id = ?", (usuario_id,))
+        self._conn.commit()
+
+    def puede_desbloquear_con_pin(self) -> bool:
+        if self.session is None or self.session.intentos_pin_fallidos >= MAX_INTENTOS_PIN:
+            return False
+        return self.obtener_perfil(self.session.usuario_id).tiene_pin
+
+    def desbloquear_con_pin(self, pin: str) -> None:
+        """Desbloquea la sesion actual con el PIN. Tras MAX_INTENTOS_PIN
+        fallos seguidos el PIN deja de aceptarse hasta usar la contrasena
+        (un PIN de 4 numeros se adivinaria probando)."""
+        if not self.puede_desbloquear_con_pin():
+            raise AuthError("Ingresá con tu contraseña")
+        row = self._conn.execute(
+            "SELECT pin_hash, pin_salt FROM usuarios WHERE id = ?", (self.session.usuario_id,)
+        ).fetchone()
+        if not hmac.compare_digest(_hash_password(pin, row["pin_salt"]), row["pin_hash"]):
+            self.session.intentos_pin_fallidos += 1
+            raise AuthError("PIN incorrecto")
+        self.session.intentos_pin_fallidos = 0
+        self.session.touch()
 
     def logout(self) -> None:
         if self.session is not None:

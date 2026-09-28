@@ -48,10 +48,10 @@ def main(page: ft.Page) -> None:
             f.write(traceback.format_exc())
             f.write("\n")
 
-    def mostrar_login():
+    def mostrar_login(usuario: str | None = None):
         page.overlay.clear()
         try:
-            root.content = build_login_view(page, auth, on_success=lambda session: mostrar_app())
+            root.content = build_login_view(page, auth, on_success=lambda session: mostrar_app(), usuario_inicial=usuario)
         except Exception:
             _log_error("mostrar_login")
             raise
