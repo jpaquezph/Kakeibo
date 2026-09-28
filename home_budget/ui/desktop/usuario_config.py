@@ -1,4 +1,4 @@
-"""Tarjeta "Usuario" de Configuracion: imagen/color de perfil, nombre,
+"""Seccion "Usuario" de Configuracion: imagen/color de perfil, nombre,
 contrasena y PIN de desbloqueo por inactividad."""
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def _titulo_bloque(texto: str) -> ft.Text:
     return ft.Text(texto, size=13, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY)
 
 
-def build_usuario_card(page: ft.Page, auth: AuthService, on_perfil_cambiado: Callable[[str], None]) -> ft.Control:
+def build_usuario_seccion(page: ft.Page, auth: AuthService, on_perfil_cambiado: Callable[[str], None]) -> ft.Control:
     """`on_perfil_cambiado(mensaje)` reconstruye la app (la barra lateral
     muestra nombre y avatar) y avisa el resultado."""
     usuario_id = auth.session.usuario_id
@@ -268,12 +268,7 @@ def build_usuario_card(page: ft.Page, auth: AuthService, on_perfil_cambiado: Cal
     )
 
     divisor = ft.Divider(height=1, color=theme.BORDER)
-    return theme.card(
-        ft.Column(
-            [
-                theme.section_pill("Usuario", theme.CONFIG_COLOR, theme.CONFIG_BG, icon="person_rounded"),
-                bloque_imagen, divisor, bloque_nombre, divisor, bloque_password, divisor, bloque_pin,
-            ],
-            spacing=14,
-        )
+    return ft.Column(
+        [bloque_imagen, divisor, bloque_nombre, divisor, bloque_password, divisor, bloque_pin],
+        spacing=14,
     )

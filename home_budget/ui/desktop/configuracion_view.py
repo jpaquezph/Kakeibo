@@ -9,7 +9,11 @@ from ...app.auth.service import AuthService
 from ...app.services.config import ConfigService
 from ...app.services.logs import ruta_log, ultimo_error
 from .. import theme
-from .usuario_config import build_usuario_card
+from .usuario_config import build_usuario_seccion
+
+# Secciones desplegadas. Vive a nivel de modulo para que sobreviva a las
+# reconstrucciones de la vista (ej: al cambiar el nombre o el tema).
+_expandidas: set[str] = set()
 
 
 def build_configuracion_view(
@@ -24,45 +28,65 @@ def build_configuracion_view(
         [
             ft.Text("Configuración", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Container(height=8),
-            build_usuario_card(page, auth, on_perfil_cambiado),
+            _seccion(page, "usuario", "Usuario", "person_rounded", build_usuario_seccion(page, auth, on_perfil_cambiado)),
             ft.Container(height=14),
-            _apariencia_card(on_cambiar_tema),
+            _seccion(page, "apariencia", "Apariencia", "palette_outlined", _apariencia(on_cambiar_tema)),
             ft.Container(height=14),
-            _registro_errores_card(page),
+            _seccion(page, "errores", "Registro de errores", "description_outlined", _registro_errores(page)),
         ],
         expand=True, spacing=0, scroll=ft.ScrollMode.AUTO,
     )
 
 
-def _apariencia_card(on_cambiar_tema: Callable[[bool], None]) -> ft.Control:
-    return theme.card(
-        ft.Column(
-            [
-                theme.section_pill("Apariencia", theme.CONFIG_COLOR, theme.CONFIG_BG, icon="palette_outlined"),
-                ft.Row(
-                    [
-                        ft.Column(
-                            [
-                                ft.Text("Modo oscuro", size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
-                                ft.Text("Cambia los colores de toda la app a un tema oscuro.", size=12, color=theme.TEXT_SECONDARY),
-                            ],
-                            spacing=2,
-                        ),
-                        ft.Switch(
-                            value=theme.MODO_OSCURO,
-                            active_color=theme.CONFIG_COLOR,
-                            on_change=lambda e: on_cambiar_tema(e.control.value),
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-            ],
-            spacing=10,
-        )
+def _seccion(page: ft.Page, clave: str, titulo: str, icono: str, cuerpo: ft.Control) -> ft.Control:
+    """Tarjeta plegable: arranca minimizada (solo el titulo) y se despliega
+    o pliega tocando el encabezado."""
+    abierta = clave in _expandidas
+    cuerpo.visible = abierta
+    flecha = ft.Icon(ft.Icons.EXPAND_LESS_ROUNDED if abierta else ft.Icons.EXPAND_MORE_ROUNDED, color=theme.TEXT_SECONDARY)
+
+    def alternar(_e):
+        if clave in _expandidas:
+            _expandidas.discard(clave)
+        else:
+            _expandidas.add(clave)
+        cuerpo.visible = clave in _expandidas
+        flecha.icon = ft.Icons.EXPAND_LESS_ROUNDED if cuerpo.visible else ft.Icons.EXPAND_MORE_ROUNDED
+        page.update()
+
+    encabezado = ft.Container(
+        content=ft.Row(
+            [theme.section_pill(titulo, theme.CONFIG_COLOR, theme.CONFIG_BG, icon=icono), flecha],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        on_click=alternar,
+        border_radius=theme.RADIUS_SM,
+        tooltip="Mostrar u ocultar",
+    )
+    return theme.card(ft.Column([encabezado, cuerpo], spacing=14))
+
+
+def _apariencia(on_cambiar_tema: Callable[[bool], None]) -> ft.Control:
+    return ft.Row(
+        [
+            ft.Column(
+                [
+                    ft.Text("Modo oscuro", size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                    ft.Text("Cambia los colores de toda la app a un tema oscuro.", size=12, color=theme.TEXT_SECONDARY),
+                ],
+                spacing=2,
+            ),
+            ft.Switch(
+                value=theme.MODO_OSCURO,
+                active_color=theme.CONFIG_COLOR,
+                on_change=lambda e: on_cambiar_tema(e.control.value),
+            ),
+        ],
+        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )
 
 
-def _registro_errores_card(page: ft.Page) -> ft.Control:
+def _registro_errores(page: ft.Page) -> ft.Control:
     icono = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, size=14)
     estado_texto = ft.Text("", size=12, selectable=True, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
 
@@ -86,29 +110,21 @@ def _registro_errores_card(page: ft.Page) -> ft.Control:
 
     refrescar()
 
-    return theme.card(
-        ft.Column(
-            [
-                ft.Row(
-                    [
-                        theme.section_pill("Registro de errores", theme.CONFIG_COLOR, theme.CONFIG_BG, icon="description_outlined"),
-                        ft.Row(
-                            [
-                                theme.secondary_button("Actualizar", refrescar, icon=ft.Icons.REFRESH_ROUNDED),
-                                theme.secondary_button("Abrir carpeta", abrir_carpeta, icon=ft.Icons.FOLDER_OPEN_ROUNDED),
-                            ],
-                            spacing=8,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                ft.Text(
-                    "Si algo falló, en la carpeta está el archivo con el detalle técnico para pasarle a un "
-                    "administrador o soporte. Se guarda solo en tu PC, no se envía a ningún lado.",
-                    size=12, color=theme.TEXT_SECONDARY,
-                ),
-                ft.Row([icono, estado_texto], spacing=6),
-            ],
-            spacing=10,
-        )
+    return ft.Column(
+        [
+            ft.Text(
+                "Si algo falló, en la carpeta está el archivo con el detalle técnico para pasarle a un "
+                "administrador o soporte. Se guarda solo en tu PC, no se envía a ningún lado.",
+                size=12, color=theme.TEXT_SECONDARY,
+            ),
+            ft.Row([icono, estado_texto], spacing=6),
+            ft.Row(
+                [
+                    theme.secondary_button("Actualizar", refrescar, icon=ft.Icons.REFRESH_ROUNDED),
+                    theme.secondary_button("Abrir carpeta", abrir_carpeta, icon=ft.Icons.FOLDER_OPEN_ROUNDED),
+                ],
+                spacing=8,
+            ),
+        ],
+        spacing=10,
     )
