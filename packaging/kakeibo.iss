@@ -30,6 +30,7 @@ OutputBaseFilename=KakeiboSetup
 Compression=lzma2
 SolidCompression=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=..\assets\icon.ico
 WizardStyle=modern
 
 [Languages]

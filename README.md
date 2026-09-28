@@ -72,11 +72,17 @@ flutter doctor          # verificar que Visual Studio se detecta OK
   --exclude .venv .git .claude .pytest_cache backups dist installer packaging ^
             Markdowns tests "Kakeibo-Windows.zip" "Kakeibo.spec" "kakeibo.db" ^
             "kakeibo_debug.log" "README.md" "requirements.txt" "pytest.ini" ^
-            ".gitignore" "build"
+            ".gitignore" "build" "Logo-Kakeibo.png" "Logo-Kakeibo-claro.png" ^
+            "Relevamiento tecnico.txt" docs scripts "Documentacion usuario" "kakeibo_run.log"
 ```
 
 (El `--exclude` es importante: sin él, `flet build` copia *toda* la carpeta
-del proyecto tal cual, incluyendo `.venv` y `.git`.)
+del proyecto tal cual, incluyendo `.venv` y `.git`, y también la base
+`kakeibo.db` con tus datos. El instalador nunca debe llevar una base: cada
+instalación arranca vacía y la app crea la base al abrirse por primera vez.
+Antes de compilar el instalador, verificar que `build\windows` no tenga
+ningún `.db`, `.log` ni backup; y no abrir `build\windows\Kakeibo.exe` antes
+de compilarlo, porque eso crea una base ahí adentro.)
 
 Esto genera `build\windows\` (una carpeta, no un único .exe — son varias DLLs
 de Flutter + el ejecutable). Después, compilar el instalador:

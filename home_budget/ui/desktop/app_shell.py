@@ -252,7 +252,7 @@ def _build_layout(estado, cambiar_seccion, contenido: ft.Control, auth, salir, h
                 ft.Container(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.SAVINGS_ROUNDED, color=theme.DASHBOARD_COLOR, size=26),
+                            components.logo(30),
                             ft.Text("Kakeibo", size=20, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
                         ],
                         spacing=8,

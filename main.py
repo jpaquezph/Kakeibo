@@ -10,6 +10,7 @@ from home_budget.app.database import DEFAULT_DB_PATH, get_connection, init_db
 from home_budget.app.services.config import CLAVE_TEMA, ConfigService
 from home_budget.ui import theme
 from home_budget.ui.desktop.app_shell import build_app_shell
+from home_budget.ui.desktop.components import RUTA_ASSETS
 from home_budget.ui.desktop.login_view import build_lock_view, build_login_view
 
 INACTIVITY_CHECK_INTERVAL_SECONDS = 10
@@ -17,6 +18,7 @@ INACTIVITY_CHECK_INTERVAL_SECONDS = 10
 
 def main(page: ft.Page) -> None:
     page.title = "Kakeibo — Gestión de gastos del hogar"
+    page.window.icon = str(RUTA_ASSETS / "icon.ico")
 
     conn = get_connection(DEFAULT_DB_PATH)
     init_db(conn)
@@ -98,4 +100,4 @@ def main(page: ft.Page) -> None:
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(main, assets_dir="assets")

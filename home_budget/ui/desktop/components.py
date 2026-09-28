@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import flet as ft
 import flet.canvas as cv
@@ -111,6 +112,19 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
         border=theme.border_all(1, theme.BORDER),
         margin=theme.margin_only(bottom=8),
     )
+
+
+# Logo de la app (assets/ en la raiz del proyecto). Se pasa como bytes para no
+# depender de como resuelve rutas de assets cada modo (flet run / flet build).
+RUTA_ASSETS = Path(__file__).resolve().parents[3] / "assets"
+_LOGO_OSCURO = (RUTA_ASSETS / "logo.png").read_bytes()        # ambar, para el tema oscuro
+_LOGO_CLARO = (RUTA_ASSETS / "logo_claro.png").read_bytes()   # azul, para el tema claro
+
+
+def logo(tamano: int = 32) -> ft.Image:
+    # Se elige al construir: al cambiar de tema la interfaz se reconstruye y toma el otro.
+    src = _LOGO_OSCURO if theme.MODO_OSCURO else _LOGO_CLARO
+    return ft.Image(src=src, width=tamano, height=tamano, fit=ft.BoxFit.CONTAIN)
 
 
 AVATAR_COLOR_DEFECTO = "#898781"  # gris

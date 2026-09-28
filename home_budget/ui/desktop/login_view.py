@@ -4,6 +4,7 @@ import flet as ft
 
 from ...app.auth.service import PREGUNTAS_SECRETAS, AuthError, AuthService
 from .. import theme
+from . import components
 
 
 def build_login_view(page: ft.Page, auth: AuthService, on_success, usuario_inicial: str | None = None) -> ft.Control:
@@ -89,10 +90,7 @@ def _vista_signup(page, auth, on_success, mostrar, permitir_volver: bool = False
 
     return ft.Column(
         [
-            ft.Container(
-                content=ft.Icon(ft.Icons.SAVINGS_ROUNDED, size=40, color=theme.DASHBOARD_COLOR),
-                bgcolor=theme.DASHBOARD_BG, padding=16, border_radius=theme.RADIUS_LG,
-            ),
+            components.logo(72),
             ft.Container(height=8),
             ft.Text("Bienvenido a Kakeibo" if not permitir_volver else "Crear un usuario nuevo", size=26, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Text("Creá tu usuario para empezar a llevar tus cuentas.", size=14, color=theme.TEXT_SECONDARY),
@@ -148,10 +146,7 @@ def _vista_login(page, auth, on_success, mostrar, usuario_inicial: str | None = 
 
     return ft.Column(
         [
-            ft.Container(
-                content=ft.Icon(ft.Icons.SAVINGS_ROUNDED, size=40, color=theme.DASHBOARD_COLOR),
-                bgcolor=theme.DASHBOARD_BG, padding=16, border_radius=theme.RADIUS_LG,
-            ),
+            components.logo(72),
             ft.Container(height=8),
             ft.Text("Hola de nuevo", size=26, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Text("Ingresá tus credenciales para ver tus finanzas.", size=14, color=theme.TEXT_SECONDARY),
