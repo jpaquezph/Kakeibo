@@ -10,6 +10,7 @@ from ...app.domain.money import Money
 from ...app.services.gastos_fijos import GastoFijoService
 from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
+from ...app.services.vencimientos import VencimientoService
 from .. import theme
 
 _MESES = [
@@ -34,29 +35,14 @@ def build_calendario_view(page: ft.Page, tarjeta_service: TarjetaService, presta
     hoy = date.today()
     estado = {"anio": hoy.year, "mes": hoy.month}
     root = ft.Column(expand=True, spacing=12)
+    vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
 
     def eventos_del_mes(anio: int, mes: int) -> dict[int, list[_Evento]]:
+        colores = {"prestamo": theme.PRESTAMOS_COLOR, "fijo": _GASTO_FIJO_COLOR}
         por_dia: dict[int, list[_Evento]] = {}
-        for t in tarjeta_service.listar_tarjetas():
-            for compra in tarjeta_service.listar_compras(t.id):
-                for cuota in compra.cuotas:
-                    if cuota.pagada or cuota.fecha_vencimiento.year != anio or cuota.fecha_vencimiento.month != mes:
-                        continue
-                    por_dia.setdefault(cuota.fecha_vencimiento.day, []).append(
-                        _Evento("tarjeta", f"{t.nombre}: {compra.concepto}", t.color, cuota.monto, cuota.id, f"cuota {cuota.numero_cuota}")
-                    )
-        for p in prestamo_service.listar():
-            for cuota in p.cuotas:
-                if cuota.pagada or cuota.fecha_vencimiento.year != anio or cuota.fecha_vencimiento.month != mes:
-                    continue
-                por_dia.setdefault(cuota.fecha_vencimiento.day, []).append(
-                    _Evento("prestamo", p.nombre, theme.PRESTAMOS_COLOR, cuota.monto, cuota.id, f"cuota {cuota.numero_cuota}")
-                )
-        for ocurrencia in gasto_fijo_service.proximas_ocurrencias(anio, mes):
-            if ocurrencia.ya_registrado:
-                continue
-            por_dia.setdefault(ocurrencia.fecha.day, []).append(
-                _Evento("fijo", ocurrencia.gasto.concepto, _GASTO_FIJO_COLOR, ocurrencia.gasto.monto, ocurrencia.gasto.id, "gasto fijo")
+        for v in vencimiento_service.pendientes_del_mes(anio, mes):
+            por_dia.setdefault(v.fecha.day, []).append(
+                _Evento(v.origen, v.titulo, v.color or colores[v.origen], v.monto, v.referencia_id, v.etiqueta)
             )
         return por_dia
 

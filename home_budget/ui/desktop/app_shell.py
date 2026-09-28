@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import ctypes
 from ctypes import wintypes
+from datetime import date
 from pathlib import Path
 
 import flet as ft
@@ -18,6 +19,7 @@ from ...app.services.gastos_fijos import GastoFijoService
 from ...app.services.movimientos import MovimientoService
 from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
+from ...app.services.vencimientos import VencimientoService
 from .. import theme
 from .calendario_view import build_calendario_view
 from .configuracion_view import build_configuracion_view
@@ -27,6 +29,7 @@ from .historial_view import build_historial_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
 from .tarjetas_view import build_tarjetas_view
+from .vencimientos_aviso import build_aviso_vencimientos
 
 
 class _BrowseInfo(ctypes.Structure):
@@ -100,7 +103,7 @@ def _secciones():
     ]
 
 
-def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Control:
+def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_aviso_vencimientos: bool = False) -> ft.Control:
     categoria_repo = CategoriaRepository(conn)
     movimiento_service = MovimientoService(conn)
     tarjeta_service = TarjetaService(conn)
@@ -110,8 +113,10 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
     gasto_fijo_service = GastoFijoService(conn)
     config_service = ConfigService(conn)
 
+    vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
+
     shell_container = ft.Container(expand=True)
-    estado = {"seccion": "dashboard"}
+    estado = {"seccion": "dashboard", "aviso_abierto": mostrar_aviso_vencimientos}
 
     def contenido_para(seccion: str) -> ft.Control:
         if seccion == "movimientos":
@@ -136,7 +141,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         estado["seccion"] = key
         page.overlay.clear()
         try:
-            shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
+            shell_container.content = montar()
         except Exception:
             import traceback
             with open("kakeibo_debug.log", "a", encoding="utf-8") as f:
@@ -178,7 +183,26 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout) -> ft.Con
         )
         page.show_dialog(dialog)
 
-    shell_container.content = _build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)
+    def montar() -> ft.Control:
+        """Layout de la seccion actual, con el aviso de vencimientos flotando
+        encima mientras siga abierto (sobrevive a los cambios de seccion)."""
+        capas = [_build_layout(estado, cambiar_seccion, contenido_para, auth, salir, hacer_backup)]
+        if estado["aviso_abierto"]:
+            hoy = date.today()
+            pendientes = vencimiento_service.pendientes_del_mes(hoy.year, hoy.month)
+            if pendientes:
+                capas.append(build_aviso_vencimientos(pendientes, hoy, cerrar_aviso))
+            else:
+                estado["aviso_abierto"] = False
+        return ft.Stack(capas, expand=True)
+
+    def cerrar_aviso():
+        estado["aviso_abierto"] = False
+        capas = shell_container.content.controls
+        del capas[1:]
+        shell_container.update()
+
+    shell_container.content = montar()
     return shell_container
 
 

@@ -13,6 +13,20 @@ from .. import theme
 from . import components
 
 
+# Los campos van sin borde propio dentro de un recuadro con fondo: asi la
+# etiqueta queda adentro del recuadro, en vez de cortar el trazado del borde.
+_PADDING_FILTRO = ft.padding.Padding(left=12, right=12, top=6, bottom=6)
+
+
+def _recuadro_filtro(control: ft.Control) -> ft.Container:
+    return ft.Container(
+        content=control,
+        bgcolor=theme.SURFACE_ALT,
+        border_radius=theme.RADIUS_SM,
+        border=theme.border_all(1, theme.BORDER),
+    )
+
+
 def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, categoria_repo: CategoriaRepository) -> ft.Control:
     categorias = categoria_repo.listar()
     resultados_col = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -43,26 +57,26 @@ def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, c
     tipo_dd = ft.Dropdown(
         label="Tipo", value="todos",
         options=[ft.dropdown.Option("todos", "Todos"), ft.dropdown.Option("ingreso", "Ingresos"), ft.dropdown.Option("egreso", "Egresos")],
-        filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=150,
+        border=ft.InputBorder.NONE, content_padding=_PADDING_FILTRO, width=150,
     )
     categoria_dd = ft.Dropdown(
         label="Categoría", value="todas",
         options=[ft.dropdown.Option("todas", "Todas")] + [ft.dropdown.Option(str(c.id), c.nombre) for c in categorias],
-        filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=190,
+        border=ft.InputBorder.NONE, content_padding=_PADDING_FILTRO, width=190,
     )
     moneda_dd = ft.Dropdown(
         label="Moneda", value="todas",
         options=[ft.dropdown.Option("todas", "Todas")] + [ft.dropdown.Option(m.value) for m in Moneda],
-        filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=140,
+        border=ft.InputBorder.NONE, content_padding=_PADDING_FILTRO, width=140,
     )
     estado_dd = ft.Dropdown(
         label="Estado", value="todos",
         options=[ft.dropdown.Option("todos", "Todos")] + [ft.dropdown.Option(e.value) for e in EstadoMovimiento],
-        filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=150,
+        border=ft.InputBorder.NONE, content_padding=_PADDING_FILTRO, width=150,
     )
     concepto_field = ft.TextField(
-        label="Buscar por concepto o detalle", filled=True, bgcolor=theme.SURFACE_ALT,
-        border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=260,
+        label="Buscar por concepto o detalle", border=ft.InputBorder.NONE,
+        content_padding=_PADDING_FILTRO, width=260,
     )
 
     def aplicar_filtros(_e=None):
@@ -103,10 +117,13 @@ def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, c
                 ft.Text("Filtros", size=14, weight=ft.FontWeight.BOLD, color=theme.HISTORIAL_COLOR),
                 ft.Row(
                     [
-                        ft.Column([ft.Text("Desde", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_desde_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(desde_picker, "open", True), page.update()))])]),
-                        ft.Column([ft.Text("Hasta", size=11, color=theme.TEXT_MUTED), ft.Row([fecha_hasta_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(hasta_picker, "open", True), page.update()))])]),
-                        tipo_dd, categoria_dd, moneda_dd, estado_dd, concepto_field,
+                        ft.Row([ft.Text("Desde", size=12, color=theme.TEXT_MUTED), fecha_desde_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(desde_picker, "open", True), page.update()))], spacing=6),
+                        ft.Row([ft.Text("Hasta", size=12, color=theme.TEXT_MUTED), fecha_hasta_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, icon_size=16, on_click=lambda e: (setattr(hasta_picker, "open", True), page.update()))], spacing=6),
                     ],
+                    spacing=24,
+                ),
+                ft.Row(
+                    [_recuadro_filtro(c) for c in (tipo_dd, categoria_dd, moneda_dd, estado_dd, concepto_field)],
                     spacing=12, wrap=True, vertical_alignment=ft.CrossAxisAlignment.END,
                 ),
                 ft.Row(

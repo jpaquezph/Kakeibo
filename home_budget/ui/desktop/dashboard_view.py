@@ -1,22 +1,31 @@
 from __future__ import annotations
 
+import math
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import flet as ft
+import flet.canvas as cv
 
 from ...app.domain.money import Money, Moneda
 from ...app.services.cambio import CambioDivisaService
-from ...app.services.dashboard import DashboardService
+from ...app.services.dashboard import DashboardService, PorcionCategoria, distribucion_por_categoria
 from .. import theme
 from . import components
 
 
-_ICONO_ORIGEN = {
-    "fijo": ("receipt_long_rounded", theme.MOVIMIENTOS_COLOR),
-    "tarjeta": ("credit_card_rounded", theme.TARJETAS_COLOR),
-    "prestamo": ("account_balance_rounded", theme.PRESTAMOS_COLOR),
-}
+def _icono_origen(origen: str) -> tuple[str, str]:
+    # Funcion (no dict de modulo) para tomar la paleta activa, clara u oscura.
+    return {
+        "fijo": ("receipt_long_rounded", theme.MOVIMIENTOS_COLOR),
+        "tarjeta": ("credit_card_rounded", theme.TARJETAS_COLOR),
+        "prestamo": ("account_balance_rounded", theme.PRESTAMOS_COLOR),
+    }.get(origen, ("check_circle_rounded", theme.TEXT_MUTED))
+
+
+_ALTURA_PAGADO_INICIAL = 240
+_ALTURA_PAGADO_MINIMA = 160
+_SEPARACION_TARJETAS = 16
 
 
 def _construir_pagado_card(pagos) -> ft.Container:
@@ -25,8 +34,8 @@ def _construir_pagado_card(pagos) -> ft.Container:
         totales[p.monto.moneda] = totales.get(p.monto.moneda, Money.zero(p.monto.moneda)) + p.monto
 
     items = []
-    for p in pagos[:10]:
-        icono, color = _ICONO_ORIGEN.get(p.origen, ("check_circle_rounded", theme.TEXT_MUTED))
+    for p in pagos:
+        icono, color = _icono_origen(p.origen)
         items.append(
             ft.Row(
                 [
@@ -43,15 +52,109 @@ def _construir_pagado_card(pagos) -> ft.Container:
         spacing=16,
     ) if totales else ft.Container()
 
-    return theme.card(
+    # La altura de la tarjeta la fija build_dashboard_view para alinearla con
+    # la columna izquierda; si los pagos no entran, la lista se scrollea.
+    card = theme.card(
         ft.Column(
             [
                 ft.Text("Pagado este mes", size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
                 ft.Divider(height=1, color=theme.BORDER),
-                *(items or [components.empty_state("Todavía no pagaste nada este mes.", "task_alt_rounded")]),
+                ft.Column(
+                    items or [components.empty_state("Todavía no pagaste nada este mes.", "task_alt_rounded")],
+                    spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+                ),
                 totales_row,
             ],
             spacing=8,
+        )
+    )
+    card.height = _ALTURA_PAGADO_INICIAL
+    return card
+
+
+_DIAMETRO_TORTA = 170
+
+
+def _torta(porciones: list[PorcionCategoria]) -> ft.Control:
+    """Torta dibujada en un canvas (esta version de Flet no trae PieChart).
+    Las porciones arrancan arriba y siguen en sentido horario, de mayor a
+    menor; una linea del color de la tarjeta separa cada porcion."""
+    radio = _DIAMETRO_TORTA / 2
+    formas = []
+    angulo = -math.pi / 2
+    limites = []
+    for p in porciones:
+        barrido = 2 * math.pi * p.porcentaje / 100
+        formas.append(cv.Arc(
+            0, 0, _DIAMETRO_TORTA, _DIAMETRO_TORTA, start_angle=angulo, sweep_angle=barrido,
+            use_center=True, paint=ft.Paint(color=p.color, style=ft.PaintingStyle.FILL),
+        ))
+        limites.append(angulo)
+        angulo += barrido
+    if len(porciones) > 1:
+        separador = ft.Paint(color=theme.SURFACE, stroke_width=2, style=ft.PaintingStyle.STROKE)
+        for a in limites:
+            formas.append(cv.Line(radio, radio, radio + radio * math.cos(a), radio + radio * math.sin(a), paint=separador))
+    return cv.Canvas(formas, width=_DIAMETRO_TORTA, height=_DIAMETRO_TORTA)
+
+
+def _leyenda(porciones: list[PorcionCategoria]) -> ft.Control:
+    return ft.Column(
+        [
+            ft.Row(
+                [
+                    ft.Container(width=10, height=10, bgcolor=p.color, border_radius=5),
+                    ft.Text(p.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(f"{p.porcentaje:.1f}%", size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, width=52, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(p.total.formatted(), size=12, color=theme.TEXT_SECONDARY, width=110, text_align=ft.TextAlign.RIGHT),
+                ],
+                spacing=10,
+            )
+            for p in porciones
+        ],
+        spacing=8,
+        expand=True,
+    )
+
+
+def _construir_categorias_card(page: ft.Page, por_categoria) -> ft.Container:
+    distribuciones = {m: distribucion_por_categoria(por_categoria, m) for m in Moneda}
+    monedas = [m for m in Moneda if distribuciones[m]]
+    cuerpo = ft.Container()
+
+    def mostrar(moneda: Moneda):
+        porciones = distribuciones[moneda]
+        cuerpo.content = ft.Row(
+            [_torta(porciones), _leyenda(porciones)],
+            spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    def on_moneda_change(e):
+        mostrar(Moneda(next(iter(e.control.selected))))
+        page.update()
+
+    encabezado = [ft.Text("Gastos por categoría", size=15, weight=ft.FontWeight.BOLD, color=theme.MOVIMIENTOS_COLOR, expand=True)]
+    if len(monedas) > 1:
+        # ARS y USD no se suman: cada moneda tiene su propia torta.
+        encabezado.append(ft.SegmentedButton(
+            segments=[ft.Segment(value=m.value, label=ft.Text(m.value)) for m in monedas],
+            selected=[monedas[0].value], allow_multiple_selection=False, allow_empty_selection=False,
+            show_selected_icon=False, on_change=on_moneda_change,
+        ))
+
+    if monedas:
+        mostrar(monedas[0])
+    else:
+        cuerpo.content = components.empty_state("Sin gastos registrados todavía.")
+
+    return theme.card(
+        ft.Column(
+            [
+                ft.Row(encabezado, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Divider(height=1, color=theme.BORDER),
+                cuerpo,
+            ],
+            spacing=10,
         )
     )
 
@@ -88,28 +191,7 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
         if not moneda_rows:
             moneda_rows = [components.empty_state("Todavía no registraste movimientos.", "savings_rounded")]
 
-        categoria_items = []
-        for tc in resumen.por_categoria[:8]:
-            categoria_items.append(
-                ft.Row(
-                    [
-                        ft.Container(width=10, height=10, bgcolor=tc.color, border_radius=5),
-                        ft.Text(tc.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True),
-                        ft.Text(f"{tc.total.formatted()} {tc.moneda.value}", size=13, weight=ft.FontWeight.W_600, color=theme.TEXT_SECONDARY),
-                    ],
-                    spacing=10,
-                )
-            )
-        categoria_card = theme.card(
-            ft.Column(
-                [
-                    ft.Text("Gastos por categoría", size=15, weight=ft.FontWeight.BOLD, color=theme.MOVIMIENTOS_COLOR),
-                    ft.Divider(height=1, color=theme.BORDER),
-                    *(categoria_items or [components.empty_state("Sin gastos registrados todavía.")]),
-                ],
-                spacing=10,
-            )
-        )
+        categoria_card = _construir_categorias_card(page, resumen.por_categoria)
 
         tarjeta_items = []
         for tt in resumen.por_tarjeta:
@@ -179,6 +261,26 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
 
         pagado_card = _construir_pagado_card(resumen.pagado_este_mes)
 
+        # "Pagado este mes" ocupa lo que le falta a la columna derecha para
+        # terminar a la misma altura que la izquierda. Las alturas reales solo
+        # se conocen despues del layout, por eso se miden con on_size_change.
+        alturas: dict[str, float] = {}
+
+        def medir(clave: str):
+            def on_size(e):
+                alturas[clave] = e.height
+                if len(alturas) < 3:
+                    return
+                disponible = alturas["izquierda"] - alturas["tarjetas"] - alturas["prestamos"] - 2 * _SEPARACION_TARJETAS
+                nueva = max(_ALTURA_PAGADO_MINIMA, round(disponible))
+                if pagado_card.height != nueva:
+                    pagado_card.height = nueva
+                    pagado_card.update()
+            return on_size
+
+        tarjetas_card.on_size_change = medir("tarjetas")
+        prestamos_card.on_size_change = medir("prestamos")
+
         return [
             ft.Text("Resumen general", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Container(height=4),
@@ -186,9 +288,9 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
             ft.Container(height=8),
             ft.ResponsiveRow(
                 [
-                    ft.Container(ft.Column([categoria_card, cambio_card], spacing=16), col=6),
+                    ft.Container(ft.Column([categoria_card, cambio_card], spacing=_SEPARACION_TARJETAS, on_size_change=medir("izquierda")), col=6),
                     ft.Container(
-                        ft.Column([tarjetas_card, prestamos_card, pagado_card], spacing=16),
+                        ft.Column([tarjetas_card, prestamos_card, pagado_card], spacing=_SEPARACION_TARJETAS),
                         col=6,
                     ),
                 ],

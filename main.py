@@ -39,6 +39,7 @@ def main(page: ft.Page) -> None:
     page.add(root)
 
     monitor_task_started = {"value": False}
+    aviso_vencimientos_mostrado = {"value": False}
 
     def _log_error(etiqueta: str) -> None:
         import traceback
@@ -66,7 +67,13 @@ def main(page: ft.Page) -> None:
 
     def mostrar_app():
         try:
-            root.content = build_app_shell(page, conn, auth, on_logout=mostrar_login)
+            # El aviso de vencimientos sale una sola vez por apertura de la app,
+            # no cada vez que se desbloquea o se vuelve a iniciar sesion.
+            root.content = build_app_shell(
+                page, conn, auth, on_logout=mostrar_login,
+                mostrar_aviso_vencimientos=not aviso_vencimientos_mostrado["value"],
+            )
+            aviso_vencimientos_mostrado["value"] = True
         except Exception:
             _log_error("mostrar_app")
             raise

@@ -90,3 +90,44 @@ def test_pagado_del_mes_junta_fijos_tarjetas_y_prestamos(conn):
     origenes = {p.origen for p in pagos}
     assert origenes == {"fijo", "tarjeta", "prestamo"}
     assert sum(p.monto.amount for p in pagos) == 10000
+
+
+def _total(nombre, cents, moneda=Moneda.ARS):
+    from home_budget.app.services.dashboard import TotalCategoria
+    return TotalCategoria(categoria_id=0, nombre=nombre, color="#000000", icono="", moneda=moneda, total=Money(cents, moneda))
+
+
+def test_distribucion_por_categoria_calcula_porcentajes_por_moneda():
+    from home_budget.app.services.dashboard import distribucion_por_categoria
+
+    porciones = distribucion_por_categoria(
+        [_total("Comida", 3000), _total("Casa", 1000), _total("Viaje", 500, Moneda.USD)], Moneda.ARS
+    )
+
+    assert [(p.nombre, p.porcentaje) for p in porciones] == [("Comida", 75.0), ("Casa", 25.0)]
+
+
+def test_distribucion_por_categoria_excluye_la_compra_de_dolares():
+    from home_budget.app.services.cambio import CATEGORIA_EGRESO
+    from home_budget.app.services.dashboard import distribucion_por_categoria
+
+    porciones = distribucion_por_categoria([_total("Comida", 1000), _total(CATEGORIA_EGRESO, 9000)], Moneda.ARS)
+
+    assert [(p.nombre, p.porcentaje) for p in porciones] == [("Comida", 100.0)]
+
+
+def test_distribucion_por_categoria_agrupa_las_mas_chicas_en_resto():
+    from home_budget.app.services.dashboard import NOMBRE_RESTO, distribucion_por_categoria
+
+    totales = [_total(f"Cat{i}", 1000 - i * 100) for i in range(5)]
+    porciones = distribucion_por_categoria(totales, Moneda.ARS, max_porciones=3)
+
+    assert [p.nombre for p in porciones] == ["Cat0", "Cat1", NOMBRE_RESTO]
+    assert porciones[-1].total.cents == 800 + 700 + 600
+    assert round(sum(p.porcentaje for p in porciones), 6) == 100
+
+
+def test_distribucion_por_categoria_sin_gastos_devuelve_vacio():
+    from home_budget.app.services.dashboard import distribucion_por_categoria
+
+    assert distribucion_por_categoria([], Moneda.ARS) == []

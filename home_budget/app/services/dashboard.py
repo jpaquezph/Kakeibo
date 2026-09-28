@@ -6,6 +6,7 @@ from datetime import date
 
 from ..domain.models import TipoMovimiento
 from ..domain.money import Money, Moneda
+from .cambio import CATEGORIA_EGRESO as CATEGORIA_CAMBIO_EGRESO
 
 
 @dataclass
@@ -27,6 +28,45 @@ class TotalCategoria:
     icono: str
     moneda: Moneda
     total: Money
+
+
+@dataclass
+class PorcionCategoria:
+    nombre: str
+    color: str
+    total: Money
+    porcentaje: float  # 0-100
+
+
+NOMBRE_RESTO = "Resto"
+COLOR_RESTO = "#898781"
+
+
+def distribucion_por_categoria(
+    por_categoria: list[TotalCategoria], moneda: Moneda, max_porciones: int = 7
+) -> list[PorcionCategoria]:
+    """Porcentaje de lo gastado en cada categoria para una moneda (no se
+    mezclan ARS y USD). Se excluye la compra de dolares, que no es un gasto
+    sino un cambio de moneda. Si hay mas de `max_porciones` categorias, las
+    mas chicas se agrupan en "Resto" para que la torta siga siendo legible."""
+    totales = sorted(
+        (tc for tc in por_categoria
+         if tc.moneda == moneda and tc.nombre != CATEGORIA_CAMBIO_EGRESO and tc.total.cents > 0),
+        key=lambda tc: tc.total.cents, reverse=True,
+    )
+    suma = sum(tc.total.cents for tc in totales)
+    if suma == 0:
+        return []
+
+    porciones = [(tc.nombre, tc.color, tc.total.cents) for tc in totales]
+    if len(porciones) > max_porciones:
+        resto = sum(c for _, _, c in porciones[max_porciones - 1:])
+        porciones = porciones[:max_porciones - 1] + [(NOMBRE_RESTO, COLOR_RESTO, resto)]
+
+    return [
+        PorcionCategoria(nombre=n, color=col, total=Money(c, moneda), porcentaje=c * 100 / suma)
+        for n, col, c in porciones
+    ]
 
 
 @dataclass
