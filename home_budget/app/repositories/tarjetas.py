@@ -38,6 +38,8 @@ class TarjetaRepository:
         self._conn.commit()
 
     def eliminar(self, tarjeta_id: int) -> None:
+        # Los gastos fijos que se debitaban de esta tarjeta pasan a ser gastos fijos comunes.
+        self._conn.execute("UPDATE gastos_fijos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
         self._conn.execute("DELETE FROM tarjetas WHERE id = ?", (tarjeta_id,))
         self._conn.commit()
 

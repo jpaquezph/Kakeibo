@@ -9,6 +9,16 @@ from ..domain.money import Money, Moneda, split_in_installments
 from ..repositories.tarjetas import CompraRepository, TarjetaRepository
 
 
+def vencimiento_cuota(fecha_compra: date, numero_cuota: int, cantidad_cuotas: int, tarjeta_cerrada: bool = False) -> date:
+    """En cuotas, la 1ra vence el mes siguiente a la compra; en 1 pago, el
+    mismo mes. Si la tarjeta ya cerro el resumen del mes, todo se corre un
+    mes mas (ej: compra en enero en cuotas con la tarjeta cerrada -> 1ra
+    cuota en marzo)."""
+    desfase = 1 if tarjeta_cerrada else 0
+    meses = (numero_cuota if cantidad_cuotas > 1 else 0) + desfase
+    return add_months(fecha_compra, meses) if meses else fecha_compra
+
+
 class TarjetaService:
     def __init__(self, conn: sqlite3.Connection):
         self._tarjetas = TarjetaRepository(conn)
@@ -57,6 +67,7 @@ class TarjetaService:
         categoria_id: int,
         cantidad_cuotas: int = 1,
         cuota_inicial: int = 1,
+        tarjeta_cerrada: bool = False,
     ) -> Compra:
         if not (1 <= cuota_inicial <= cantidad_cuotas):
             raise ValueError("La cuota actual debe estar entre 1 y la cantidad total de cuotas")
@@ -64,7 +75,7 @@ class TarjetaService:
         cuotas = []
         for i, monto in enumerate(montos_cuota):
             numero = i + 1
-            vencimiento = add_months(fecha, numero) if cantidad_cuotas > 1 else fecha
+            vencimiento = vencimiento_cuota(fecha, numero, cantidad_cuotas, tarjeta_cerrada)
             ya_pagada = numero < cuota_inicial
             cuotas.append(
                 CuotaCompra(

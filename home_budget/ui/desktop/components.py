@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import math
+
 import flet as ft
+import flet.canvas as cv
 
 from ...app.domain.money import Money
 from .. import theme
@@ -122,4 +125,50 @@ def avatar(perfil, radio: int = 14) -> ft.CircleAvatar:
         foreground_image_src=perfil.avatar_imagen,
         bgcolor=perfil.avatar_color or AVATAR_COLOR_DEFECTO,
         radius=radio,
+    )
+
+
+_DIAMETRO_TORTA = 170
+
+
+def torta(porciones) -> ft.Control:
+    """Torta dibujada en un canvas (esta version de Flet no trae PieChart).
+    `porciones`: objetos con nombre, color, total (Money) y porcentaje (0-100).
+    Las porciones arrancan arriba y siguen en sentido horario, de mayor a
+    menor; una linea del color de la tarjeta separa cada porcion."""
+    radio = _DIAMETRO_TORTA / 2
+    formas = []
+    angulo = -math.pi / 2
+    limites = []
+    for p in porciones:
+        barrido = 2 * math.pi * p.porcentaje / 100
+        formas.append(cv.Arc(
+            0, 0, _DIAMETRO_TORTA, _DIAMETRO_TORTA, start_angle=angulo, sweep_angle=barrido,
+            use_center=True, paint=ft.Paint(color=p.color, style=ft.PaintingStyle.FILL),
+        ))
+        limites.append(angulo)
+        angulo += barrido
+    if len(porciones) > 1:
+        separador = ft.Paint(color=theme.SURFACE, stroke_width=2, style=ft.PaintingStyle.STROKE)
+        for a in limites:
+            formas.append(cv.Line(radio, radio, radio + radio * math.cos(a), radio + radio * math.sin(a), paint=separador))
+    return cv.Canvas(formas, width=_DIAMETRO_TORTA, height=_DIAMETRO_TORTA)
+
+
+def leyenda_torta(porciones) -> ft.Control:
+    return ft.Column(
+        [
+            ft.Row(
+                [
+                    ft.Container(width=10, height=10, bgcolor=p.color, border_radius=5),
+                    ft.Text(p.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Text(f"{p.porcentaje:.1f}%", size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, width=52, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(p.total.formatted(), size=12, color=theme.TEXT_SECONDARY, width=110, text_align=ft.TextAlign.RIGHT),
+                ],
+                spacing=10,
+            )
+            for p in porciones
+        ],
+        spacing=8,
+        expand=True,
     )

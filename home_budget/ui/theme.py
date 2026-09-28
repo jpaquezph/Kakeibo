@@ -44,6 +44,8 @@ _PALETA_CLARA = {
     "CAMBIO_BG": "#E3F5F6",
     "CONFIG_COLOR": "#546E7A",       # gris azulado (configuracion)
     "CONFIG_BG": "#ECEFF1",
+    "INVERSIONES_COLOR": "#3F51B5",  # indigo
+    "INVERSIONES_BG": "#E8EAF6",
 }
 
 # Mismo criterio calido que el modo claro: marrones muy oscuros en vez de
@@ -76,6 +78,8 @@ _PALETA_OSCURA = {
     "CAMBIO_BG": "#193234",
     "CONFIG_COLOR": "#90A4AE",
     "CONFIG_BG": "#2A3236",
+    "INVERSIONES_COLOR": "#7986CB",
+    "INVERSIONES_BG": "#252A45",
 }
 
 # Declarados para que el editor los reconozca; el valor lo pone aplicar_modo().
@@ -106,6 +110,8 @@ CAMBIO_COLOR: str
 CAMBIO_BG: str
 CONFIG_COLOR: str
 CONFIG_BG: str
+INVERSIONES_COLOR: str
+INVERSIONES_BG: str
 
 MODO_OSCURO = False
 

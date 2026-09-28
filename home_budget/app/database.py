@@ -52,6 +52,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_usuario_recuperacion_columnas(conn)
     _ensure_usuario_perfil_columnas(conn)
     _ensure_movimiento_gasto_fijo_column(conn)
+    _ensure_gasto_fijo_tarjeta_column(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -100,6 +101,14 @@ def _ensure_movimiento_gasto_fijo_column(conn: sqlite3.Connection) -> None:
     columnas = {row["name"] for row in conn.execute("PRAGMA table_info(movimientos)")}
     if "gasto_fijo_id" not in columnas:
         conn.execute("ALTER TABLE movimientos ADD COLUMN gasto_fijo_id INTEGER REFERENCES gastos_fijos(id)")
+
+
+def _ensure_gasto_fijo_tarjeta_column(conn: sqlite3.Connection) -> None:
+    """Agrega 'tarjeta_id' a gastos_fijos: la tarjeta a la que se debita
+    automaticamente (NULL = se paga por fuera de las tarjetas)."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(gastos_fijos)")}
+    if "tarjeta_id" not in columnas:
+        conn.execute("ALTER TABLE gastos_fijos ADD COLUMN tarjeta_id INTEGER REFERENCES tarjetas(id)")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

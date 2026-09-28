@@ -189,3 +189,26 @@ def test_editar_datos_compra(conn):
 
     assert editada.concepto == "Supermercado (corregido)"
     assert editada.categoria_id == cat_nueva
+
+
+def test_vencimiento_cuota_con_tarjeta_cerrada_se_corre_un_mes():
+    from home_budget.app.services.tarjetas import vencimiento_cuota
+
+    compra = date(2026, 1, 15)
+    assert vencimiento_cuota(compra, 1, 3) == date(2026, 2, 15)
+    assert vencimiento_cuota(compra, 1, 3, tarjeta_cerrada=True) == date(2026, 3, 15)
+    assert vencimiento_cuota(compra, 3, 3, tarjeta_cerrada=True) == date(2026, 5, 15)
+    assert vencimiento_cuota(compra, 1, 1) == compra
+    assert vencimiento_cuota(compra, 1, 1, tarjeta_cerrada=True) == date(2026, 2, 15)
+
+
+def test_registrar_compra_con_tarjeta_cerrada(conn):
+    from home_budget.app.repositories.categorias import CategoriaRepository
+    from home_budget.app.services.tarjetas import TarjetaService
+
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Banco", "1234", Moneda.ARS)
+    cat = CategoriaRepository(conn).listar()[0].id
+    compra = service.registrar_compra(tarjeta.id, date(2026, 1, 10), "TV", "", Money.from_decimal("3000", Moneda.ARS), cat, 3, tarjeta_cerrada=True)
+
+    assert [c.fecha_vencimiento for c in compra.cuotas] == [date(2026, 3, 10), date(2026, 4, 10), date(2026, 5, 10)]

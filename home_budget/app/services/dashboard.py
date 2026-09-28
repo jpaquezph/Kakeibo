@@ -7,6 +7,8 @@ from datetime import date
 from ..domain.models import TipoMovimiento
 from ..domain.money import Money, Moneda
 from .cambio import CATEGORIA_EGRESO as CATEGORIA_CAMBIO_EGRESO
+from .gastos_fijos import GastoFijoService
+from .inversiones import CATEGORIA_INVERSION
 
 
 @dataclass
@@ -46,12 +48,12 @@ def distribucion_por_categoria(
     por_categoria: list[TotalCategoria], moneda: Moneda, max_porciones: int = 7
 ) -> list[PorcionCategoria]:
     """Porcentaje de lo gastado en cada categoria para una moneda (no se
-    mezclan ARS y USD). Se excluye la compra de dolares, que no es un gasto
-    sino un cambio de moneda. Si hay mas de `max_porciones` categorias, las
+    mezclan ARS y USD). Se excluyen la compra de dolares y lo invertido, que
+    no son gastos sino plata que cambia de lugar. Si hay mas de `max_porciones` categorias, las
     mas chicas se agrupan en "Resto" para que la torta siga siendo legible."""
     totales = sorted(
         (tc for tc in por_categoria
-         if tc.moneda == moneda and tc.nombre != CATEGORIA_CAMBIO_EGRESO and tc.total.cents > 0),
+         if tc.moneda == moneda and tc.nombre not in (CATEGORIA_CAMBIO_EGRESO, CATEGORIA_INVERSION) and tc.total.cents > 0),
         key=lambda tc: tc.total.cents, reverse=True,
     )
     suma = sum(tc.total.cents for tc in totales)
@@ -76,10 +78,14 @@ class TotalTarjeta:
     moneda: Moneda
     total_pendiente_un_pago: Money
     total_pendiente_cuotas: Money
+    # Debitos automaticos del mes sin pagar: suman a lo que hay que pagar de
+    # la tarjeta, aunque como consumo se cuentan en Gastos fijos.
+    total_pendiente_debitos: Money | None = None
 
     @property
     def total_pendiente(self) -> Money:
-        return self.total_pendiente_un_pago + self.total_pendiente_cuotas
+        total = self.total_pendiente_un_pago + self.total_pendiente_cuotas
+        return total + self.total_pendiente_debitos if self.total_pendiente_debitos else total
 
 
 @dataclass
@@ -235,4 +241,15 @@ class DashboardService:
                 por_tarjeta[tarjeta_id].total_pendiente_un_pago = monto
             else:
                 por_tarjeta[tarjeta_id].total_pendiente_cuotas = monto
-        return list(por_tarjeta.values())
+
+        hoy = date.today()
+        gastos_fijos = GastoFijoService(self._conn)
+        for t in self._conn.execute("SELECT id, nombre, moneda FROM tarjetas ORDER BY nombre").fetchall():
+            debitos = gastos_fijos.total_debitos_pendientes(t["id"], hoy.year, hoy.month, t["moneda"])
+            if debitos.cents == 0:
+                continue
+            if t["id"] not in por_tarjeta:
+                cero = Money.zero(t["moneda"])
+                por_tarjeta[t["id"]] = TotalTarjeta(t["id"], t["nombre"], Moneda(t["moneda"]), cero, cero)
+            por_tarjeta[t["id"]].total_pendiente_debitos = debitos
+        return sorted(por_tarjeta.values(), key=lambda tt: tt.nombre)

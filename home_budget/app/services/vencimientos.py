@@ -48,9 +48,12 @@ class VencimientoService:
                     vencimientos.append(Vencimiento(
                         cuota.fecha_vencimiento, "prestamo", p.nombre, cuota.monto, cuota.id, f"cuota {cuota.numero_cuota}",
                     ))
+        nombres_tarjeta = {t.id: t.nombre for t in self._tarjetas.listar_tarjetas()}
         for ocurrencia in self._gastos_fijos.proximas_ocurrencias(anio, mes):
             if not ocurrencia.ya_registrado:
+                tarjeta_id = ocurrencia.gasto.tarjeta_id
+                etiqueta = f"débito automático · {nombres_tarjeta.get(tarjeta_id, 'tarjeta')}" if tarjeta_id else "gasto fijo"
                 vencimientos.append(Vencimiento(
-                    ocurrencia.fecha, "fijo", ocurrencia.gasto.concepto, ocurrencia.gasto.monto, ocurrencia.gasto.id, "gasto fijo",
+                    ocurrencia.fecha, "fijo", ocurrencia.gasto.concepto, ocurrencia.gasto.monto, ocurrencia.gasto.id, etiqueta,
                 ))
         return sorted(vencimientos, key=lambda v: v.fecha)

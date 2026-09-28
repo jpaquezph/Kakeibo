@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS gastos_fijos (
     moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
     categoria_id INTEGER NOT NULL REFERENCES categorias(id),
     dia_mes INTEGER NOT NULL CHECK (dia_mes BETWEEN 1 AND 28),
-    activo INTEGER NOT NULL DEFAULT 1
+    activo INTEGER NOT NULL DEFAULT 1,
+    tarjeta_id INTEGER REFERENCES tarjetas(id)
 );
 
 CREATE TABLE IF NOT EXISTS compras (

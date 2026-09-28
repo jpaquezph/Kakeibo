@@ -10,6 +10,7 @@ from ..domain.models import EstadoMovimiento, GastoFijo, Movimiento, TipoMovimie
 from ..domain.money import Money
 from ..repositories.gastos_fijos import GastoFijoRepository
 from ..repositories.movimientos import MovimientoRepository
+from ..repositories.tarjetas import TarjetaRepository
 
 
 @dataclass
@@ -23,17 +24,32 @@ class GastoFijoService:
     def __init__(self, conn: sqlite3.Connection):
         self._repo = GastoFijoRepository(conn)
         self._movimientos = MovimientoRepository(conn)
+        self._tarjetas = TarjetaRepository(conn)
 
-    def registrar(self, concepto: str, detalle: str, monto: Money, categoria_id: int, dia_mes: int) -> GastoFijo:
+    def _validar_tarjeta(self, tarjeta_id: int | None, monto: Money) -> None:
+        if tarjeta_id is None:
+            return
+        tarjeta = self._tarjetas.obtener(tarjeta_id)
+        if tarjeta is None:
+            raise ValueError("La tarjeta elegida no existe")
+        if tarjeta.moneda != monto.moneda:
+            raise ValueError(f"La tarjeta {tarjeta.nombre} es en {tarjeta.moneda.value} y el gasto en {monto.moneda.value}")
+
+    def registrar(
+        self, concepto: str, detalle: str, monto: Money, categoria_id: int, dia_mes: int, tarjeta_id: int | None = None,
+    ) -> GastoFijo:
+        """`tarjeta_id`: si se paga por debito automatico, la tarjeta a la que se debita."""
         if not concepto.strip():
             raise ValueError("El concepto no puede estar vacio")
         if not (1 <= dia_mes <= 28):
             raise ValueError("El dia del mes debe estar entre 1 y 28")
-        gasto = GastoFijo(id=None, concepto=concepto.strip(), detalle=detalle, monto=monto, categoria_id=categoria_id, dia_mes=dia_mes)
+        self._validar_tarjeta(tarjeta_id, monto)
+        gasto = GastoFijo(id=None, concepto=concepto.strip(), detalle=detalle, monto=monto, categoria_id=categoria_id,
+                          dia_mes=dia_mes, tarjeta_id=tarjeta_id)
         gasto.id = self._repo.crear(gasto)
         return gasto
 
-    def editar(self, gasto_fijo_id: int, nuevo_monto: Money, nuevo_dia_mes: int) -> GastoFijo:
+    def editar(self, gasto_fijo_id: int, nuevo_monto: Money, nuevo_dia_mes: int, tarjeta_id: int | None | object = ...) -> GastoFijo:
         """Cambia el monto y/o el dia de vencimiento a partir de ahora. Los
         movimientos ya registrados en meses anteriores no se modifican."""
         gasto = self.obtener(gasto_fijo_id)
@@ -43,6 +59,9 @@ class GastoFijoService:
             raise ValueError("El monto debe ser mayor a cero")
         if not (1 <= nuevo_dia_mes <= 28):
             raise ValueError("El día de vencimiento debe estar entre 1 y 28")
+        if tarjeta_id is not ...:  # sin pasarlo, se mantiene el debito que tenia
+            gasto.tarjeta_id = tarjeta_id
+        self._validar_tarjeta(gasto.tarjeta_id, nuevo_monto)
         gasto.monto = nuevo_monto
         gasto.dia_mes = nuevo_dia_mes
         self._repo.actualizar(gasto)
@@ -97,6 +116,32 @@ class GastoFijoService:
         )
         movimiento.id = self._movimientos.crear(movimiento)
         return movimiento
+
+    # --- Debito automatico ---
+    # El gasto se registra una sola vez, como gasto fijo (un movimiento con
+    # fijo=1). La tarjeta solo lo muestra dentro de su resumen del mes y, al
+    # pagar la tarjeta, registra ese mismo pago: no se crea una compra aparte,
+    # para no contarlo dos veces.
+
+    def debitos_del_mes(self, tarjeta_id: int, anio: int, mes: int) -> list[OcurrenciaGastoFijo]:
+        return [o for o in self.proximas_ocurrencias(anio, mes) if o.gasto.tarjeta_id == tarjeta_id]
+
+    def total_debitos_pendientes(self, tarjeta_id: int, anio: int, mes: int, moneda) -> Money:
+        """Lo que falta pagar de los debitos de esta tarjeta en el mes: suma al
+        total a pagar de la tarjeta (el consumo ya cuenta en Gastos fijos)."""
+        total = Money.zero(moneda)
+        for o in self.debitos_del_mes(tarjeta_id, anio, mes):
+            if not o.ya_registrado:
+                total = total + o.gasto.monto
+        return total
+
+    def registrar_debitos_del_mes(self, tarjeta_id: int, anio: int, mes: int) -> int:
+        """Registra el pago de los debitos de esta tarjeta que faltan en el mes.
+        Devuelve cuantos se registraron."""
+        pendientes = [o for o in self.debitos_del_mes(tarjeta_id, anio, mes) if not o.ya_registrado]
+        for o in pendientes:
+            self.generar_movimiento_del_mes(o.gasto.id, date(anio, mes, 1))
+        return len(pendientes)
 
     def proximo_vencimiento(self, gasto: GastoFijo, desde: date | None = None) -> date:
         """La proxima fecha (hoy o futura) en la que vence este gasto fijo."""

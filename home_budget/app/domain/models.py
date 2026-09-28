@@ -43,6 +43,8 @@ CATEGORIAS_BASE: list[dict] = [
     {"nombre": "Otros ingresos", "color": "#66BB6A", "icono": "more_horiz", "tipo": "ingreso"},
     {"nombre": "Cambio de moneda (entregado)", "color": "#0E7C86", "icono": "currency_exchange", "tipo": "egreso"},
     {"nombre": "Cambio de moneda (recibido)", "color": "#0E7C86", "icono": "currency_exchange", "tipo": "ingreso"},
+    {"nombre": "Inversiones", "color": "#5C6BC0", "icono": "trending_up", "tipo": "egreso"},
+    {"nombre": "Retiro de inversiones", "color": "#5C6BC0", "icono": "savings", "tipo": "ingreso"},
 ]
 
 
@@ -97,6 +99,7 @@ class GastoFijo:
     categoria_id: int
     dia_mes: int
     activo: bool = True
+    tarjeta_id: int | None = None  # debito automatico en esta tarjeta
 
 
 @dataclass(slots=True)

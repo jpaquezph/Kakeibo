@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import math
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 import flet as ft
-import flet.canvas as cv
 
 from ...app.domain.money import Money, Moneda
 from ...app.services.cambio import CambioDivisaService
-from ...app.services.dashboard import DashboardService, PorcionCategoria, distribucion_por_categoria
+from ...app.services.dashboard import DashboardService, distribucion_por_categoria
 from .. import theme
 from . import components
 
@@ -72,51 +70,6 @@ def _construir_pagado_card(pagos) -> ft.Container:
     return card
 
 
-_DIAMETRO_TORTA = 170
-
-
-def _torta(porciones: list[PorcionCategoria]) -> ft.Control:
-    """Torta dibujada en un canvas (esta version de Flet no trae PieChart).
-    Las porciones arrancan arriba y siguen en sentido horario, de mayor a
-    menor; una linea del color de la tarjeta separa cada porcion."""
-    radio = _DIAMETRO_TORTA / 2
-    formas = []
-    angulo = -math.pi / 2
-    limites = []
-    for p in porciones:
-        barrido = 2 * math.pi * p.porcentaje / 100
-        formas.append(cv.Arc(
-            0, 0, _DIAMETRO_TORTA, _DIAMETRO_TORTA, start_angle=angulo, sweep_angle=barrido,
-            use_center=True, paint=ft.Paint(color=p.color, style=ft.PaintingStyle.FILL),
-        ))
-        limites.append(angulo)
-        angulo += barrido
-    if len(porciones) > 1:
-        separador = ft.Paint(color=theme.SURFACE, stroke_width=2, style=ft.PaintingStyle.STROKE)
-        for a in limites:
-            formas.append(cv.Line(radio, radio, radio + radio * math.cos(a), radio + radio * math.sin(a), paint=separador))
-    return cv.Canvas(formas, width=_DIAMETRO_TORTA, height=_DIAMETRO_TORTA)
-
-
-def _leyenda(porciones: list[PorcionCategoria]) -> ft.Control:
-    return ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Container(width=10, height=10, bgcolor=p.color, border_radius=5),
-                    ft.Text(p.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True, no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Text(f"{p.porcentaje:.1f}%", size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY, width=52, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(p.total.formatted(), size=12, color=theme.TEXT_SECONDARY, width=110, text_align=ft.TextAlign.RIGHT),
-                ],
-                spacing=10,
-            )
-            for p in porciones
-        ],
-        spacing=8,
-        expand=True,
-    )
-
-
 def _construir_categorias_card(page: ft.Page, por_categoria) -> ft.Container:
     distribuciones = {m: distribucion_por_categoria(por_categoria, m) for m in Moneda}
     monedas = [m for m in Moneda if distribuciones[m]]
@@ -125,7 +78,7 @@ def _construir_categorias_card(page: ft.Page, por_categoria) -> ft.Container:
     def mostrar(moneda: Moneda):
         porciones = distribuciones[moneda]
         cuerpo.content = ft.Row(
-            [_torta(porciones), _leyenda(porciones)],
+            [components.torta(porciones), components.leyenda_torta(porciones)],
             spacing=24, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
@@ -200,6 +153,8 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
                 detalle_partes.append(f"1 pago: {tt.total_pendiente_un_pago.formatted()}")
             if tt.total_pendiente_cuotas.cents > 0:
                 detalle_partes.append(f"cuotas: {tt.total_pendiente_cuotas.formatted()}")
+            if tt.total_pendiente_debitos and tt.total_pendiente_debitos.cents > 0:
+                detalle_partes.append(f"débitos automáticos del mes: {tt.total_pendiente_debitos.formatted()}")
             tarjeta_items.append(
                 ft.Column(
                     [

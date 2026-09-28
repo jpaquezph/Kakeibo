@@ -16,6 +16,7 @@ from ...app.services.cambio import CambioDivisaService
 from ...app.services.config import CLAVE_TEMA, ConfigService
 from ...app.services.dashboard import DashboardService
 from ...app.services.gastos_fijos import GastoFijoService
+from ...app.services.inversiones import InversionService
 from ...app.services.movimientos import MovimientoService
 from ...app.services.prestamos import PrestamoService
 from ...app.services.tarjetas import TarjetaService
@@ -27,6 +28,7 @@ from .configuracion_view import build_configuracion_view
 from .dashboard_view import build_dashboard_view
 from .gastos_fijos_view import build_gastos_fijos_view
 from .historial_view import build_historial_view
+from .inversiones_view import build_inversiones_view
 from .movimientos_view import build_movimientos_view
 from .prestamos_view import build_prestamos_view
 from .tarjetas_view import build_tarjetas_view
@@ -98,6 +100,7 @@ def _secciones():
         ("gastos_fijos", "event_repeat_rounded", "Gastos fijos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
         ("tarjetas", "credit_card_rounded", "Tarjetas", theme.TARJETAS_COLOR, theme.TARJETAS_BG),
         ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
+        ("inversiones", "trending_up_rounded", "Inversiones", theme.INVERSIONES_COLOR, theme.INVERSIONES_BG),
         ("calendario", "calendar_month_rounded", "Calendario", theme.CALENDARIO_COLOR, theme.CALENDARIO_BG),
         ("historial", "history_rounded", "Historial", theme.HISTORIAL_COLOR, theme.HISTORIAL_BG),
         ("configuracion", "settings_rounded", "Configuración", theme.CONFIG_COLOR, theme.CONFIG_BG),
@@ -113,6 +116,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
     cambio_service = CambioDivisaService(conn)
     gasto_fijo_service = GastoFijoService(conn)
     config_service = ConfigService(conn)
+    inversion_service = InversionService(conn)
 
     vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
 
@@ -126,11 +130,13 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         if seccion == "movimientos":
             return build_movimientos_view(page, movimiento_service, categoria_repo)
         if seccion == "gastos_fijos":
-            return build_gastos_fijos_view(page, gasto_fijo_service, categoria_repo)
+            return build_gastos_fijos_view(page, gasto_fijo_service, categoria_repo, tarjeta_service)
         if seccion == "tarjetas":
-            return build_tarjetas_view(page, tarjeta_service, categoria_repo)
+            return build_tarjetas_view(page, tarjeta_service, categoria_repo, gasto_fijo_service)
         if seccion == "prestamos":
             return build_prestamos_view(page, prestamo_service)
+        if seccion == "inversiones":
+            return build_inversiones_view(page, inversion_service)
         if seccion == "calendario":
             return build_calendario_view(page, tarjeta_service, prestamo_service, gasto_fijo_service)
         if seccion == "historial":
