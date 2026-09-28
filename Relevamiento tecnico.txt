@@ -1,0 +1,458 @@
+# Relevamiento Técnico
+
+## 1. Objetivo
+
+Definir la arquitectura y tecnologías necesarias para desarrollar una aplicación de gestión de gastos del hogar en Python, con soporte para escritorio Windows, Mac y Android mediante APK.
+
+---
+
+# 2. Requerimientos tecnológicos
+
+Lenguaje principal:
+
+Python 3.x
+
+Base de datos:
+
+SQLite
+
+Testing:
+
+pytest
+
+Control de versiones:
+
+Git
+
+---
+
+# 3. Arquitectura propuesta
+
+Se propone una arquitectura por capas:
+
+```text
+┌───────────────────────────────┐
+│         PRESENTACIÓN          │
+│                               │
+│ Desktop / Android             │
+└───────────────┬───────────────┘
+                │
+┌───────────────▼───────────────┐
+│       CASOS DE USO            │
+│                               │
+│ Registrar gasto               │
+│ Registrar ingreso             │
+│ Registrar tarjeta             │
+│ Registrar cuota               │
+│ Registrar préstamo            │
+│ Consultar resumen             │
+└───────────────┬───────────────┘
+                │
+┌───────────────▼───────────────┐
+│       DOMINIO / NEGOCIO       │
+│                               │
+│ Movimientos                   │
+│ Categorías                    │
+│ Tarjetas                      │
+│ Cuotas                        │
+│ Préstamos                     │
+│ Cálculos                      │
+└───────────────┬───────────────┘
+                │
+┌───────────────▼───────────────┐
+│        PERSISTENCIA           │
+│                               │
+│ SQLite                        │
+└───────────────────────────────┘
+```
+
+---
+
+# 4. Framework de interfaz
+
+Se deberá realizar un análisis técnico inicial para seleccionar el framework de interfaz.
+
+Alternativas principales:
+
+* Kivy.
+* Flet.
+* PySide6/Qt.
+
+## Criterios
+
+La alternativa seleccionada deberá:
+
+* Permitir desarrollo en Python.
+* Permitir generar una aplicación de escritorio.
+* Permitir generar APK Android.
+* Permitir reutilizar la lógica de negocio.
+* Tener documentación suficiente.
+* Tener una comunidad activa.
+* Permitir mantener el proyecto a largo plazo.
+
+Para una arquitectura multiplataforma con una única base de código de interfaz, se deberán evaluar especialmente Kivy y Flet.
+
+PySide6 podrá considerarse si la prioridad principal pasa a ser la calidad de la aplicación de escritorio y se acepta desarrollar una interfaz Android separada.
+
+La decisión final deberá documentarse antes de comenzar el desarrollo de la interfaz.
+
+---
+
+# 5. Base de datos
+
+La primera versión utilizará SQLite.
+
+Ventajas:
+
+* No requiere servidor.
+* No requiere conexión a Internet.
+* Es liviana.
+* Está integrada con Python.
+* Es adecuada para una aplicación personal/familiar.
+* Permite realizar backups mediante copia del archivo.
+
+---
+
+# 6. Modelo de datos inicial
+
+## Tabla movimientos
+
+Campos conceptuales:
+
+```text
+id
+fecha
+tipo
+concepto
+detalle
+monto
+moneda
+categoria_id
+estado
+created_at
+updated_at
+```
+
+---
+
+## Tabla categorias
+
+```text
+id
+nombre
+descripcion
+activa
+```
+
+---
+
+## Tabla tarjetas
+
+```text
+id
+nombre
+entidad
+marca
+ultimos_4
+limite
+dia_cierre
+dia_vencimiento
+activa
+```
+
+---
+
+## Tabla compras_tarjeta
+
+```text
+id
+tarjeta_id
+concepto
+detalle
+categoria_id
+monto_total
+moneda
+tipo_pago
+cantidad_cuotas
+fecha_compra
+estado
+```
+
+---
+
+## Tabla cuotas
+
+```text
+id
+compra_id
+numero_cuota
+cantidad_total
+monto
+fecha_vencimiento
+fecha_pago
+estado
+```
+
+---
+
+## Tabla prestamos
+
+```text
+id
+nombre
+entidad
+monto_original
+moneda
+cantidad_cuotas
+monto_cuota
+fecha_inicio
+fecha_vencimiento
+estado
+detalle
+```
+
+---
+
+## Tabla cuotas_prestamo
+
+```text
+id
+prestamo_id
+numero_cuota
+monto
+fecha_vencimiento
+fecha_pago
+estado
+```
+
+---
+
+## Tabla gastos_fijos
+
+```text
+id
+concepto
+detalle
+categoria_id
+monto
+moneda
+periodicidad
+fecha_inicio
+fecha_vencimiento
+activo
+```
+
+---
+
+# 7. Manejo de dinero
+
+No se deberán utilizar números de punto flotante para almacenar importes monetarios.
+
+Se recomienda almacenar los valores monetarios como unidades enteras de la moneda correspondiente.
+
+Ejemplo:
+
+$15.250,50
+
+Se almacenaría como:
+
+1525050 centavos.
+
+Esto evita errores de precisión propios de los números de punto flotante.
+
+---
+
+# 8. Manejo de moneda
+
+La moneda deberá almacenarse como parte del movimiento.
+
+Valores iniciales:
+
+```text
+ARS
+USD
+```
+
+No deberá existir conversión automática.
+
+Cada consulta financiera deberá indicar explícitamente la moneda.
+
+---
+
+# 9. Servicios de negocio
+
+Se recomienda separar la lógica en servicios.
+
+Ejemplos:
+
+```text
+MovimientoService
+TarjetaService
+CuotaService
+PrestamoService
+ReporteService
+CategoriaService
+GastoFijoService
+```
+
+Esto permitirá reutilizar la lógica tanto desde Windows como desde Android.
+
+---
+
+# 10. Repositorios
+
+La interacción con SQLite deberá estar encapsulada.
+
+Ejemplo conceptual:
+
+```text
+MovimientoRepository
+TarjetaRepository
+CuotaRepository
+PrestamoRepository
+CategoriaRepository
+```
+
+La lógica de negocio no deberá ejecutar SQL directamente desde la interfaz.
+
+---
+
+# 11. Reportes
+
+Los reportes deberán construirse utilizando consultas sobre la base de datos.
+
+Ejemplos:
+
+```text
+get_total_gastos_por_categoria()
+get_total_gastos_por_tarjeta()
+get_total_gastos_por_moneda()
+get_total_ingresos()
+get_total_cuotas_pendientes()
+get_total_prestamos_pendientes()
+```
+
+---
+
+# 12. Backup
+
+La aplicación deberá permitir realizar una copia de seguridad de los datos.
+
+La primera alternativa será permitir exportar/copiar la base SQLite.
+
+Como mejora futura se podrá implementar:
+
+* Backup automático.
+* Exportación JSON.
+* Exportación CSV.
+* Backup en nube.
+
+---
+
+# 13. Seguridad
+
+La aplicación deberá evitar almacenar información bancaria sensible que no sea necesaria.
+
+No se deberán almacenar:
+
+* Contraseñas bancarias.
+* Códigos de seguridad.
+* CVV.
+* Credenciales de home banking.
+
+Los datos deberán permanecer localmente en el dispositivo durante V1.
+
+---
+
+# 14. Distribución Windows
+
+Se deberá evaluar la generación de un ejecutable distribuible.
+
+Alternativas:
+
+* PyInstaller.
+* Nuitka.
+
+La primera alternativa recomendada para evaluación será PyInstaller debido a su simplicidad.
+
+---
+
+# 15. Distribución Android
+
+La solución Android deberá permitir generar APK desde el proyecto Python.
+
+Se deberá evaluar:
+
+* Kivy + Buildozer.
+* Flet + mecanismo de empaquetado Android correspondiente.
+
+La decisión deberá basarse en:
+
+* Compatibilidad.
+* Tamaño final.
+* Acceso a SQLite.
+* Rendimiento.
+* Mantenimiento.
+* Facilidad de generación del APK.
+
+---
+
+# 16. Estructura propuesta
+
+```text
+home_budget/
+│
+├── app/
+│   ├── domain/
+│   ├── services/
+│   ├── repositories/
+│   ├── database/
+│   ├── models/
+│   └── reports/
+│
+├── ui/
+│   ├── desktop/
+│   └── mobile/
+│
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+│
+├── migrations/
+│
+├── scripts/
+│
+├── requirements.txt
+├── README.md
+└── main.py
+```
+
+La estructura exacta podrá modificarse después de seleccionar el framework de interfaz.
+
+---
+
+# 17. Relevamiento pendiente
+
+Antes del desarrollo definitivo deberán resolverse:
+
+1. Framework de interfaz.
+2. Estrategia exacta de empaquetado Android.
+3. Estrategia de migraciones SQLite.
+4. Sistema de backup.
+5. Diseño definitivo del modelo de cuotas.
+6. Reglas para fechas de cierre y vencimiento de tarjetas.
+7. Comportamiento de gastos fijos.
+8. Diseño definitivo del dashboard.
+9. Sistema de navegación.
+10. Estrategia de actualización de la aplicación.
+
+---
+
+# 18. Decisión arquitectónica inicial
+
+La lógica financiera deberá ser independiente de la plataforma.
+
+La aplicación Windows y la aplicación Android deberán consumir la misma capa de dominio y servicios siempre que el framework seleccionado lo permita.
+
+El objetivo es evitar implementar dos veces las reglas financieras.
