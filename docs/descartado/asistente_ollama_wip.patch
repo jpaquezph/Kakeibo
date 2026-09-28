@@ -1,0 +1,303 @@
+diff --git a/home_budget/app/services/asistente.py b/home_budget/app/services/asistente.py
+index 6c0c5d0..fe3b6c1 100644
+--- a/home_budget/app/services/asistente.py
++++ b/home_budget/app/services/asistente.py
+@@ -20,7 +20,7 @@ import re
+ import urllib.error
+ import urllib.request
+ from datetime import date
+-from typing import Callable
++from typing import Callable, Iterator
+ 
+ from ..domain.dates import add_months
+ from ..repositories.movimientos import FiltroMovimientos
+@@ -35,6 +35,18 @@ HOST_DEFAULT = "http://localhost:11434"
+ MODEL_DEFAULT = "llama3.2:3b"
+ TIMEOUT_SEGUNDOS = 180
+ MOVIMIENTOS_MAX = 300
++# Sin GPU el modelo genera ~5 tokens/s: la duracion de la respuesta la define
++# casi por completo su largo, asi que se acota. keep_alive evita que Ollama
++# descargue el modelo a los 5 minutos (su default) y haya que recargarlo.
++MAX_TOKENS_RESPUESTA = 250
++KEEP_ALIVE = "30m"
++
++MENSAJE_SIN_CONEXION = (
++    "No se pudo conectar con Ollama en tu PC (http://localhost:11434). "
++    "¿Está instalado y corriendo? Si no lo instalaste, bajalo de ollama.com; "
++    "si ya lo tenés, abrilo o ejecutá 'ollama serve' en una terminal."
++)
++MENSAJE_TIMEOUT = "Ollama tardó demasiado en responder. Probá con un modelo más chico o de nuevo en un momento."
+ 
+ _MESES = {
+     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+@@ -52,7 +64,9 @@ SYSTEM_PROMPT = (
+     "responder con precision, decilo claramente y sugeri en que seccion de "
+     "la app puede revisarlo (Movimientos, Historial, Tarjetas, Prestamos, "
+     "Calendario). Respondes en espanol rioplatense, de forma breve y "
+-    "concreta, citando montos con el mismo formato que aparece en los datos."
++    "concreta (2 a 4 oraciones, sin explicar como hiciste la cuenta salvo "
++    "que te lo pidan), citando montos con el mismo formato que aparece en "
++    "los datos."
+ )
+ 
+ 
+@@ -67,22 +81,44 @@ def _post_json(url: str, payload: dict, timeout: float = TIMEOUT_SEGUNDOS) -> di
+         with urllib.request.urlopen(request, timeout=timeout) as resp:
+             return json.loads(resp.read().decode("utf-8"))
+     except urllib.error.HTTPError as exc:
+-        cuerpo = exc.read().decode("utf-8", errors="ignore")
+-        try:
+-            mensaje = json.loads(cuerpo).get("error", cuerpo)
+-        except json.JSONDecodeError:
+-            mensaje = cuerpo
+-        if exc.code == 404 and "not found" in mensaje:
+-            raise AsistenteError(f"El modelo configurado no está descargado en Ollama. Ejecutá en una terminal: ollama pull <nombre-del-modelo>. Detalle: {mensaje}") from exc
+-        raise AsistenteError(f"Ollama respondió con un error: {mensaje}") from exc
++        raise _error_http(exc) from exc
+     except urllib.error.URLError as exc:
+-        raise AsistenteError(
+-            "No se pudo conectar con Ollama en tu PC (http://localhost:11434). "
+-            "¿Está instalado y corriendo? Si no lo instalaste, bajalo de ollama.com; "
+-            "si ya lo tenés, abrilo o ejecutá 'ollama serve' en una terminal."
+-        ) from exc
++        raise AsistenteError(MENSAJE_SIN_CONEXION) from exc
+     except TimeoutError as exc:
+-        raise AsistenteError("Ollama tardó demasiado en responder. Probá con un modelo más chico o de nuevo en un momento.") from exc
++        raise AsistenteError(MENSAJE_TIMEOUT) from exc
++
++
++def _post_stream(url: str, payload: dict, timeout: float = TIMEOUT_SEGUNDOS) -> Iterator[dict]:
++    """Como _post_json, pero para respuestas en streaming de Ollama: devuelve
++    cada objeto JSON (una linea por fragmento) a medida que llega."""
++    data = json.dumps(payload).encode("utf-8")
++    request = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
++    try:
++        with urllib.request.urlopen(request, timeout=timeout) as resp:
++            for linea in resp:
++                if not linea.strip():
++                    continue
++                chunk = json.loads(linea.decode("utf-8"))
++                if chunk.get("error"):
++                    raise AsistenteError(f"Ollama respondió con un error: {chunk['error']}")
++                yield chunk
++    except urllib.error.HTTPError as exc:
++        raise _error_http(exc) from exc
++    except urllib.error.URLError as exc:
++        raise AsistenteError(MENSAJE_SIN_CONEXION) from exc
++    except TimeoutError as exc:
++        raise AsistenteError(MENSAJE_TIMEOUT) from exc
++
++
++def _error_http(exc: urllib.error.HTTPError) -> AsistenteError:
++    cuerpo = exc.read().decode("utf-8", errors="ignore")
++    try:
++        mensaje = json.loads(cuerpo).get("error", cuerpo)
++    except json.JSONDecodeError:
++        mensaje = cuerpo
++    if exc.code == 404 and "not found" in mensaje:
++        return AsistenteError(f"El modelo configurado no está descargado en Ollama. Ejecutá en una terminal: ollama pull <nombre-del-modelo>. Detalle: {mensaje}")
++    return AsistenteError(f"Ollama respondió con un error: {mensaje}")
+ 
+ 
+ def _get_json(url: str, timeout: float = 5.0) -> dict:
+@@ -191,10 +227,12 @@ class AsistenteIAService:
+         config_service: ConfigService,
+         post_json: Callable[[str, dict], dict] = _post_json,
+         get_json: Callable[[str], dict] = _get_json,
++        post_stream: Callable[[str, dict], Iterator[dict]] = _post_stream,
+     ):
+         self._config = config_service
+         self._post_json = post_json
+         self._get_json = get_json
++        self._post_stream = post_stream
+ 
+     def modelo(self) -> str:
+         return self._config.obtener(CLAVE_OLLAMA_MODEL) or MODEL_DEFAULT
+@@ -225,6 +263,7 @@ class AsistenteIAService:
+         historial: list[tuple[str, str]] | None = None,
+         modelo: str | None = None,
+         host: str | None = None,
++        on_parcial: Callable[[str], None] | None = None,
+     ) -> str:
+         """Envia la pregunta + contexto a Ollama. `historial` son pares
+         (rol, texto plano) de turnos previos, sin el contexto ya usado en
+@@ -234,7 +273,11 @@ class AsistenteIAService:
+         este metodo corre en un hilo aparte via `run_in_executor`): la
+         conexion sqlite de `ConfigService` solo se puede usar desde el hilo
+         que la creo, asi que si no se pasan se resuelven aca, en el hilo que
+-        haya llamado a `responder`."""
++        haya llamado a `responder`.
++
++        Si se pasa `on_parcial`, la respuesta se pide en streaming y se lo
++        llama con el texto acumulado cada vez que llega un fragmento, para
++        que la UI la vaya mostrando sin esperar a que termine."""
+         modelo = modelo or self.modelo()
+         host = host or self.host()
+ 
+@@ -248,10 +291,27 @@ class AsistenteIAService:
+         payload = {
+             "model": modelo,
+             "messages": mensajes,
+-            "stream": False,
+-            "options": {"temperature": 0.2},
++            "stream": on_parcial is not None,
++            "keep_alive": KEEP_ALIVE,
++            "options": {"temperature": 0.2, "num_predict": MAX_TOKENS_RESPUESTA},
+         }
+-        data = self._post_json(f"{host}/api/chat", payload)
+-
+-        texto_respuesta = (data.get("message") or {}).get("content", "")
++        if on_parcial is None:
++            data = self._post_json(f"{host}/api/chat", payload)
++            texto_respuesta = (data.get("message") or {}).get("content", "")
++        else:
++            texto_respuesta = ""
++            for chunk in self._post_stream(f"{host}/api/chat", payload):
++                fragmento = (chunk.get("message") or {}).get("content", "")
++                if fragmento:
++                    texto_respuesta += fragmento
++                    on_parcial(texto_respuesta)
+         return texto_respuesta.strip() or "No obtuve una respuesta del asistente."
++
++    def precargar(self, modelo: str, host: str) -> None:
++        """Carga el modelo en memoria de Ollama sin generar nada, para que la
++        primera pregunta no pague el tiempo de carga. Es best-effort: si
++        Ollama no esta disponible, `diagnostico()` ya lo avisa en la UI."""
++        try:
++            self._post_json(f"{host}/api/generate", {"model": modelo, "keep_alive": KEEP_ALIVE})
++        except Exception:
++            pass
+diff --git a/home_budget/ui/desktop/asistente_view.py b/home_budget/ui/desktop/asistente_view.py
+index 6c6d457..50df38c 100644
+--- a/home_budget/ui/desktop/asistente_view.py
++++ b/home_budget/ui/desktop/asistente_view.py
+@@ -2,6 +2,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import os
++import time
+ from datetime import date
+ 
+ import flet as ft
+@@ -339,6 +340,23 @@ def build_asistente_view(
+         _refrescar_mensajes()
+ 
+         loop = asyncio.get_event_loop()
++        # Burbuja "Pensando..." recien agregada: se le va reemplazando el texto
++        # a medida que Ollama manda fragmentos de la respuesta.
++        texto_burbuja = mensajes_col.controls[len(historial_ui) - 1].controls[0].content
++        ultimo_refresco = {"t": 0.0}
++
++        def _mostrar_parcial(texto: str):
++            texto_burbuja.value = texto
++            page.update()
++
++        def on_parcial(texto: str):
++            # Corre en el hilo del executor: la UI se actualiza desde el event
++            # loop, y como mucho cada ~150 ms para no saturar el canal con Flutter.
++            ahora = time.monotonic()
++            if ahora - ultimo_refresco["t"] >= 0.15:
++                ultimo_refresco["t"] = ahora
++                loop.call_soon_threadsafe(_mostrar_parcial, texto)
++
+         try:
+             contexto = construir_contexto(
+                 pregunta, dashboard_service, movimiento_service, gasto_fijo_service, prestamo_service, tarjeta_service,
+@@ -349,7 +367,7 @@ def build_asistente_view(
+             modelo = asistente_service.modelo()
+             host = asistente_service.host()
+             respuesta = await loop.run_in_executor(
+-                None, asistente_service.responder, pregunta, contexto, list(historial_api), modelo, host,
++                None, asistente_service.responder, pregunta, contexto, list(historial_api), modelo, host, on_parcial,
+             )
+             historial_api.append(("user", pregunta))
+             historial_api.append(("assistant", respuesta))
+@@ -409,6 +427,13 @@ def build_asistente_view(
+         expand=True, spacing=12,
+     )
+ 
++    async def precargar_modelo():
++        # modelo/host se leen en el hilo principal (conexion sqlite); la
++        # llamada HTTP, que puede tardar varios segundos, va al executor.
++        modelo, host = asistente_service.modelo(), asistente_service.host()
++        await asyncio.get_event_loop().run_in_executor(None, asistente_service.precargar, modelo, host)
++
+     _refrescar_banner()
+     _refrescar_mensajes()
++    page.run_task(precargar_modelo)
+     return root
+diff --git a/tests/unit/test_asistente.py b/tests/unit/test_asistente.py
+index 5558b56..d5c64e0 100644
+--- a/tests/unit/test_asistente.py
++++ b/tests/unit/test_asistente.py
+@@ -7,6 +7,8 @@ from home_budget.app.repositories.categorias import CategoriaRepository
+ from home_budget.app.services.asistente import (
+     AsistenteError,
+     AsistenteIAService,
++    KEEP_ALIVE,
++    MAX_TOKENS_RESPUESTA,
+     MODEL_DEFAULT,
+     _rango_fechas_de_pregunta,
+     construir_contexto,
+@@ -223,3 +225,61 @@ def test_responder_sin_texto_devuelve_mensaje_por_defecto(conn):
+     service = AsistenteIAService(ConfigService(conn), post_json=lambda url, payload: {"message": {"content": ""}})
+ 
+     assert service.responder("pregunta", "contexto") == "No obtuve una respuesta del asistente."
++
++
++def test_responder_con_on_parcial_usa_streaming_y_acumula_fragmentos(conn):
++    llamadas = []
++    parciales = []
++
++    def post_stream_fake(url, payload):
++        llamadas.append((url, payload))
++        yield {"message": {"content": "Gastaste "}}
++        yield {"message": {"content": "$15.000"}}
++        yield {"message": {"content": ""}, "done": True}
++
++    def post_json_prohibido(url, payload):
++        raise AssertionError("con on_parcial no deberia usarse la llamada sin streaming")
++
++    service = AsistenteIAService(ConfigService(conn), post_json=post_json_prohibido, post_stream=post_stream_fake)
++
++    respuesta = service.responder("¿cuánto gasté?", "contexto", on_parcial=parciales.append)
++
++    assert respuesta == "Gastaste $15.000"
++    assert parciales == ["Gastaste ", "Gastaste $15.000"]
++    url, payload = llamadas[0]
++    assert url == "http://localhost:11434/api/chat"
++    assert payload["stream"] is True
++
++
++def test_responder_acota_largo_y_mantiene_el_modelo_cargado(conn):
++    llamadas = []
++
++    def post_json_fake(url, payload):
++        llamadas.append(payload)
++        return {"message": {"content": "ok"}}
++
++    service = AsistenteIAService(ConfigService(conn), post_json=post_json_fake)
++    service.responder("pregunta", "contexto")
++
++    payload = llamadas[0]
++    assert payload["stream"] is False
++    assert payload["options"]["num_predict"] == MAX_TOKENS_RESPUESTA
++    assert payload["keep_alive"] == KEEP_ALIVE
++
++
++def test_precargar_pide_cargar_el_modelo_sin_generar(conn):
++    llamadas = []
++    service = AsistenteIAService(ConfigService(conn), post_json=lambda url, payload: llamadas.append((url, payload)) or {})
++
++    service.precargar("llama3.2:3b", "http://localhost:11434")
++
++    assert llamadas == [("http://localhost:11434/api/generate", {"model": "llama3.2:3b", "keep_alive": KEEP_ALIVE})]
++
++
++def test_precargar_ignora_errores_de_conexion(conn):
++    def post_json_falla(url, payload):
++        raise AsistenteError("Ollama no está corriendo.")
++
++    service = AsistenteIAService(ConfigService(conn), post_json=post_json_falla)
++
++    service.precargar("llama3.2:3b", "http://localhost:11434")  # no debe lanzar

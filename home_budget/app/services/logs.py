@@ -1,7 +1,7 @@
 """Acceso al archivo de log de errores de la app (kakeibo_debug.log).
 
-Los distintos puntos de la app que atrapan excepciones inesperadas (main.py,
-app_shell.py, asistente_view.py) escriben ahi con la misma ruta relativa: al
+Los distintos puntos de la app que atrapan excepciones inesperadas (main.py y
+app_shell.py) escriben ahi con la misma ruta relativa: al
 correr empaquetada con flet build windows, el proceso queda con el
 directorio de trabajo puesto en la carpeta del ejecutable, junto a la base."""
 from __future__ import annotations

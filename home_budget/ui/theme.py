@@ -40,8 +40,8 @@ CALENDARIO_COLOR = "#2A78D6"   # azul
 CALENDARIO_BG = "#E8F1FC"
 CAMBIO_COLOR = "#0E7C86"       # teal (compra/venta de dólares)
 CAMBIO_BG = "#E3F5F6"
-ASISTENTE_COLOR = "#3F51B5"    # indigo (asistente de IA)
-ASISTENTE_BG = "#E8EAF9"
+CONFIG_COLOR = "#546E7A"       # gris azulado (configuracion)
+CONFIG_BG = "#ECEFF1"
 
 RADIUS = 16
 RADIUS_SM = 10

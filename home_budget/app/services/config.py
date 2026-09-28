@@ -2,14 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 
-CLAVE_OLLAMA_MODEL = "ollama_model"
-CLAVE_OLLAMA_HOST = "ollama_host"
-
 
 class ConfigService:
-    """Configuracion clave/valor guardada en la base local (ej: preferencias
-    del asistente de IA local). Se guarda en texto plano en el sqlite del
-    usuario: no viaja a ningun servidor, es el mismo modelo de confianza que
+    """Configuracion clave/valor guardada en la base local. Se guarda en texto plano en el
+    sqlite del usuario: no viaja a ningun servidor, es el mismo modelo de confianza que
     un archivo de config local de cualquier app de escritorio de un solo
     usuario."""
 
