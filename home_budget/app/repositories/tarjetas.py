@@ -38,10 +38,19 @@ class TarjetaRepository:
         self._conn.commit()
 
     def eliminar(self, tarjeta_id: int) -> None:
-        # Los gastos fijos que se debitaban de esta tarjeta pasan a ser gastos fijos comunes.
-        self._conn.execute("UPDATE gastos_fijos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
-        self._conn.execute("DELETE FROM tarjetas WHERE id = ?", (tarjeta_id,))
-        self._conn.commit()
+        """Borra la tarjeta con sus compras y cuotas (compras no tiene ON DELETE
+        CASCADE, asi que se borran a mano). Los gastos fijos que se debitaban de
+        ella pasan a ser gastos fijos comunes y los movimientos que la
+        mencionaban quedan sin tarjeta."""
+        try:
+            self._conn.execute("DELETE FROM compras WHERE tarjeta_id = ?", (tarjeta_id,))  # cuotas_compra cae en cascada
+            self._conn.execute("UPDATE gastos_fijos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
+            self._conn.execute("UPDATE movimientos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
+            self._conn.execute("DELETE FROM tarjetas WHERE id = ?", (tarjeta_id,))
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def listar(self, solo_activas: bool = False) -> list[Tarjeta]:
         sql = "SELECT * FROM tarjetas"

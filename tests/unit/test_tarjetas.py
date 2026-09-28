@@ -212,3 +212,19 @@ def test_registrar_compra_con_tarjeta_cerrada(conn):
     compra = service.registrar_compra(tarjeta.id, date(2026, 1, 10), "TV", "", Money.from_decimal("3000", Moneda.ARS), cat, 3, tarjeta_cerrada=True)
 
     assert [c.fecha_vencimiento for c in compra.cuotas] == [date(2026, 3, 10), date(2026, 4, 10), date(2026, 5, 10)]
+
+
+def test_eliminar_tarjeta_con_compras_borra_compras_y_cuotas(conn):
+    service = TarjetaService(conn)
+    tarjeta = service.crear_tarjeta("Visa", "Banco", "1234", Moneda.ARS)
+    otra = service.crear_tarjeta("Master", "Banco", "5678", Moneda.ARS)
+    cat = CategoriaRepository(conn).listar()[0].id
+    compra = service.registrar_compra(tarjeta.id, date(2026, 1, 10), "TV", "", Money.from_decimal("3000", Moneda.ARS), cat, 3)
+    service.pagar_cuota(compra.cuotas[0].id)
+    service.registrar_compra(otra.id, date(2026, 1, 10), "Súper", "", Money.from_decimal("100", Moneda.ARS), cat, 1)
+
+    service.eliminar_tarjeta(tarjeta.id)
+
+    assert service.obtener_tarjeta(tarjeta.id) is None
+    assert conn.execute("SELECT COUNT(*) FROM cuotas_compra").fetchone()[0] == 1  # solo la cuota de la otra tarjeta
+    assert len(service.listar_compras(otra.id)) == 1  # las otras tarjetas no se tocan

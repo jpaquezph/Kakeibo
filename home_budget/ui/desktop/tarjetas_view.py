@@ -273,8 +273,52 @@ def build_tarjetas_view(
         page.show_dialog(dialog)
 
     def eliminar_compra(compra_id: int):
-        tarjeta_service.eliminar_compra(compra_id)
-        refrescar_tarjetas()
+        compra = next((c for c in tarjeta_service.listar_compras(estado["tarjeta_id"]) if c.id == compra_id), None)
+        descripcion = f'"{compra.concepto}" ({compra.monto_total.formatted()})' if compra else "esta compra"
+
+        def confirmar(_e):
+            tarjeta_service.eliminar_compra(compra_id)
+            page.pop_dialog()
+            refrescar_tarjetas()
+
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eliminar compra"),
+            content=ft.Text(f"¿Seguro que querés eliminar la compra {descripcion}? Se borran también todas sus cuotas, "
+                            "incluidas las ya pagadas. No se puede deshacer."),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Eliminar", confirmar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED),
+            ],
+        ))
+
+    def eliminar_tarjeta(tarjeta):
+        cantidad = len(tarjeta_service.listar_compras(tarjeta.id))
+        hoy = date.today()
+        debitos = gasto_fijo_service.debitos_del_mes(tarjeta.id, hoy.year, hoy.month)
+        detalle = [f'¿Seguro que querés eliminar la tarjeta "{tarjeta.nombre}"?']
+        if cantidad:
+            detalle.append(f"Se borran también sus {cantidad} compra(s) con todas sus cuotas, incluidas las ya pagadas.")
+        if debitos:
+            detalle.append(f"Sus {len(debitos)} débito(s) automático(s) no se pierden: pasan a ser gastos fijos comunes.")
+        detalle.append("No se puede deshacer.")
+
+        def confirmar(_e):
+            tarjeta_service.eliminar_tarjeta(tarjeta.id)
+            if estado["tarjeta_id"] == tarjeta.id:
+                estado["tarjeta_id"] = None
+            page.pop_dialog()
+            refrescar_tarjetas()
+
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Eliminar tarjeta"),
+            content=ft.Container(ft.Column([ft.Text(t) for t in detalle], spacing=8, tight=True), width=380),
+            actions=[
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Eliminar tarjeta", confirmar, color=theme.EXPENSE_RED, icon=ft.Icons.DELETE_OUTLINE_ROUNDED),
+            ],
+        ))
 
     def dialogo_tarjeta(tarjeta=None):
         es_edicion = tarjeta is not None
@@ -344,7 +388,13 @@ def build_tarjetas_view(
                 ),
                 width=360,
             ),
-            actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Guardar" if es_edicion else "Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
+            actions=[
+                # Eliminar se ofrece desde la edicion; primero se cierra este dialogo para mostrar la confirmacion.
+                *([ft.TextButton("Eliminar tarjeta", icon=ft.Icons.DELETE_OUTLINE_ROUNDED, style=ft.ButtonStyle(color=theme.EXPENSE_RED),
+                                 on_click=lambda e: (page.pop_dialog(), eliminar_tarjeta(tarjeta)))] if es_edicion else []),
+                theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+                theme.primary_button("Guardar" if es_edicion else "Crear", guardar, color=theme.TARJETAS_COLOR, icon=ft.Icons.CHECK_ROUNDED),
+            ],
         )
         page.show_dialog(dialog)
 
