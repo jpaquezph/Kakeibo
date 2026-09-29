@@ -104,14 +104,41 @@ class ResumenDashboard:
     prestamos_pendientes_ars: Money = None
     prestamos_pendientes_usd: Money = None
     prestamos_pendientes_cantidad: int = 0
+    prestamos_activos: list[ProximaCuotaPrestamo] = field(default_factory=list)
     pagado_este_mes: list[PagoDelMes] = field(default_factory=list)
+
+
+@dataclass
+class ProximaCuotaPrestamo:
+    """Un prestamo activo con la proxima cuota que hay que pagar."""
+    nombre: str
+    numero_cuota: int
+    cantidad_cuotas: int
+    monto: Money
+    fecha_vencimiento: date
 
 
 class DashboardService:
     def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
-    def resumen(self) -> ResumenDashboard:
+    def _proximas_cuotas_prestamos(self) -> list[ProximaCuotaPrestamo]:
+        rows = self._conn.execute(
+            """SELECT p.nombre, p.moneda, p.cantidad_cuotas, cp.numero_cuota, cp.monto_centavos, cp.fecha_vencimiento
+               FROM prestamos p
+               JOIN cuotas_prestamo cp ON cp.prestamo_id = p.id
+               WHERE cp.id = (SELECT id FROM cuotas_prestamo WHERE prestamo_id = p.id AND pagada = 0
+                              ORDER BY numero_cuota LIMIT 1)
+               ORDER BY cp.fecha_vencimiento, p.nombre"""
+        ).fetchall()
+        return [
+            ProximaCuotaPrestamo(r["nombre"], r["numero_cuota"], r["cantidad_cuotas"], Money(r["monto_centavos"], r["moneda"]),
+                                 date.fromisoformat(r["fecha_vencimiento"]))
+            for r in rows
+        ]
+
+    def resumen(self, hoy: date | None = None) -> ResumenDashboard:
+        hoy = hoy or date.today()
         resumen = ResumenDashboard(
             prestamos_pendientes_ars=Money.zero(Moneda.ARS),
             prestamos_pendientes_usd=Money.zero(Moneda.USD),
@@ -123,7 +150,7 @@ class DashboardService:
             resumen.por_moneda.append(ResumenMoneda(moneda=moneda, ingresos=ingresos, egresos=egresos))
 
         resumen.por_categoria = self._totales_por_categoria()
-        resumen.por_tarjeta = self._totales_por_tarjeta()
+        resumen.por_tarjeta = self._totales_por_tarjeta(hoy)
 
         pendientes = self._conn.execute(
             """SELECT p.moneda AS moneda, SUM(cp.monto_centavos) AS total
@@ -142,8 +169,8 @@ class DashboardService:
         resumen.prestamos_pendientes_cantidad = self._conn.execute(
             "SELECT COUNT(*) AS total FROM prestamos WHERE estado = 'activo'"
         ).fetchone()["total"]
+        resumen.prestamos_activos = self._proximas_cuotas_prestamos()
 
-        hoy = date.today()
         resumen.pagado_este_mes = self.pagado_del_mes(hoy.year, hoy.month)
 
         return resumen
@@ -212,44 +239,46 @@ class DashboardService:
             for r in rows
         ]
 
-    def _totales_por_tarjeta(self) -> list[TotalTarjeta]:
+    def _totales_por_tarjeta(self, hoy: date) -> list[TotalTarjeta]:
+        """Lo que hay que pagar este mes de cada tarjeta: las cuotas (y compras en
+        1 pago) sin pagar que vencen en el mes, mas sus debitos automaticos. Las
+        cuotas de meses siguientes no se suman. Uno por moneda: una tarjeta
+        opera en ARS y en USD, y esos montos nunca se suman entre si."""
+        mes = f"{hoy.year:04d}-{hoy.month:02d}"
         rows = self._conn.execute(
-            """SELECT t.id AS tarjeta_id, t.nombre, t.moneda,
+            """SELECT t.id AS tarjeta_id, t.nombre, co.moneda,
                       CASE WHEN co.cantidad_cuotas = 1 THEN 'un_pago' ELSE 'cuotas' END AS grupo,
                       SUM(cc.monto_centavos) AS total
                FROM cuotas_compra cc
                JOIN compras co ON co.id = cc.compra_id
                JOIN tarjetas t ON t.id = co.tarjeta_id
-               WHERE cc.pagada = 0
-               GROUP BY t.id, grupo
-               ORDER BY t.nombre"""
+               WHERE cc.pagada = 0 AND substr(cc.fecha_vencimiento, 1, 7) = ?
+               GROUP BY t.id, co.moneda, grupo
+               ORDER BY t.nombre""",
+            (mes,),
         ).fetchall()
 
-        por_tarjeta: dict[int, TotalTarjeta] = {}
+        por_tarjeta: dict[tuple[int, str], TotalTarjeta] = {}
+
+        def _total(tarjeta_id: int, nombre: str, moneda: str) -> TotalTarjeta:
+            clave = (tarjeta_id, moneda)
+            if clave not in por_tarjeta:
+                cero = Money.zero(moneda)
+                por_tarjeta[clave] = TotalTarjeta(tarjeta_id, nombre, Moneda(moneda), cero, cero)
+            return por_tarjeta[clave]
+
         for r in rows:
-            tarjeta_id = r["tarjeta_id"]
-            if tarjeta_id not in por_tarjeta:
-                por_tarjeta[tarjeta_id] = TotalTarjeta(
-                    tarjeta_id=tarjeta_id,
-                    nombre=r["nombre"],
-                    moneda=Moneda(r["moneda"]),
-                    total_pendiente_un_pago=Money.zero(r["moneda"]),
-                    total_pendiente_cuotas=Money.zero(r["moneda"]),
-                )
+            tt = _total(r["tarjeta_id"], r["nombre"], r["moneda"])
             monto = Money(r["total"] or 0, r["moneda"])
             if r["grupo"] == "un_pago":
-                por_tarjeta[tarjeta_id].total_pendiente_un_pago = monto
+                tt.total_pendiente_un_pago = monto
             else:
-                por_tarjeta[tarjeta_id].total_pendiente_cuotas = monto
+                tt.total_pendiente_cuotas = monto
 
-        hoy = date.today()
         gastos_fijos = GastoFijoService(self._conn)
-        for t in self._conn.execute("SELECT id, nombre, moneda FROM tarjetas ORDER BY nombre").fetchall():
-            debitos = gastos_fijos.total_debitos_pendientes(t["id"], hoy.year, hoy.month, t["moneda"])
-            if debitos.cents == 0:
-                continue
-            if t["id"] not in por_tarjeta:
-                cero = Money.zero(t["moneda"])
-                por_tarjeta[t["id"]] = TotalTarjeta(t["id"], t["nombre"], Moneda(t["moneda"]), cero, cero)
-            por_tarjeta[t["id"]].total_pendiente_debitos = debitos
-        return sorted(por_tarjeta.values(), key=lambda tt: tt.nombre)
+        for t in self._conn.execute("SELECT id, nombre FROM tarjetas ORDER BY nombre").fetchall():
+            for moneda in Moneda:
+                debitos = gastos_fijos.total_debitos_pendientes(t["id"], hoy.year, hoy.month, moneda)
+                if debitos.cents:
+                    _total(t["id"], t["nombre"], moneda.value).total_pendiente_debitos = debitos
+        return sorted(por_tarjeta.values(), key=lambda tt: (tt.nombre, tt.moneda.value))

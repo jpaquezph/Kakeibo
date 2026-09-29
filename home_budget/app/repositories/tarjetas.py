@@ -20,29 +20,34 @@ class TarjetaRepository:
             moneda=Moneda(row["moneda"]),
             color=row["color"],
             activa=bool(row["activa"]),
+            dia_cierre=row["dia_cierre"],
+            dia_vencimiento=row["dia_vencimiento"],
         )
 
     def crear(self, t: Tarjeta) -> int:
         try:
             cur = self._conn.execute(
-                "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, color, activa) VALUES (?, ?, ?, ?, ?, ?)",
-                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa)),
+                "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, color, activa, dia_cierre, dia_vencimiento)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa), t.dia_cierre, t.dia_vencimiento),
             )
         except sqlite3.IntegrityError:
             self._conn.rollback()
-            raise ValueError(f'Ya existe una tarjeta "{t.nombre}" en {t.moneda.value}')
+            raise ValueError(f'Ya existe una tarjeta "{t.nombre}"')
         self._conn.commit()
         return cur.lastrowid
 
     def actualizar(self, t: Tarjeta) -> None:
         try:
             self._conn.execute(
-                "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, color=?, activa=? WHERE id=?",
-                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa), t.id),
+                "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, color=?, activa=?,"
+                " dia_cierre=?, dia_vencimiento=? WHERE id=?",
+                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa),
+                 t.dia_cierre, t.dia_vencimiento, t.id),
             )
         except sqlite3.IntegrityError:
             self._conn.rollback()
-            raise ValueError(f'Ya existe una tarjeta "{t.nombre}" en {t.moneda.value}')
+            raise ValueError(f'Ya existe una tarjeta "{t.nombre}"')
         self._conn.commit()
 
     def eliminar(self, tarjeta_id: int) -> None:
@@ -117,7 +122,12 @@ class CompraRepository:
             ),
         )
         compra_id = cur.lastrowid
-        for cuota in compra.cuotas:
+        self._insertar_cuotas(compra_id, compra.cuotas)
+        self._conn.commit()
+        return compra_id
+
+    def _insertar_cuotas(self, compra_id: int, cuotas: list[CuotaCompra]) -> None:
+        for cuota in cuotas:
             self._conn.execute(
                 """INSERT INTO cuotas_compra (compra_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada, fecha_pago)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -126,8 +136,23 @@ class CompraRepository:
                     int(cuota.pagada), cuota.fecha_pago.isoformat() if cuota.fecha_pago else None,
                 ),
             )
-        self._conn.commit()
-        return compra_id
+
+    def reemplazar(self, compra: Compra) -> None:
+        """Reescribe la compra y todas sus cuotas (edicion completa), en una
+        sola transaccion."""
+        try:
+            self._conn.execute(
+                """UPDATE compras SET tarjeta_id = ?, fecha = ?, concepto = ?, detalle = ?, monto_total_centavos = ?,
+                   moneda = ?, cantidad_cuotas = ? WHERE id = ?""",
+                (compra.tarjeta_id, compra.fecha.isoformat(), compra.concepto, compra.detalle, compra.monto_total.cents,
+                 compra.monto_total.moneda.value, compra.cantidad_cuotas, compra.id),
+            )
+            self._conn.execute("DELETE FROM cuotas_compra WHERE compra_id = ?", (compra.id,))
+            self._insertar_cuotas(compra.id, compra.cuotas)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def actualizar_datos(self, compra_id: int, concepto: str, detalle: str, categoria_id: int) -> None:
         self._conn.execute(
@@ -152,12 +177,14 @@ class CompraRepository:
         self._conn.execute("DELETE FROM compras WHERE id = ?", (compra_id,))
         self._conn.commit()
 
-    def total_pendiente_centavos(self, tarjeta_id: int) -> int:
+    def total_pendiente_centavos(self, tarjeta_id: int, moneda: Moneda) -> int:
+        """Lo que falta pagar de las compras de la tarjeta en esa moneda (una
+        tarjeta opera en ARS y en USD, que nunca se suman entre si)."""
         row = self._conn.execute(
             """SELECT SUM(cc.monto_centavos) AS total
                FROM cuotas_compra cc JOIN compras co ON co.id = cc.compra_id
-               WHERE co.tarjeta_id = ? AND cc.pagada = 0""",
-            (tarjeta_id,),
+               WHERE co.tarjeta_id = ? AND co.moneda = ? AND cc.pagada = 0""",
+            (tarjeta_id, Moneda(moneda).value),
         ).fetchone()
         return row["total"] or 0
 

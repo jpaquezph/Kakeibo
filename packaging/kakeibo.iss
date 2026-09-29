@@ -8,7 +8,7 @@
 ;   "C:\Users\<usuario>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" packaging\kakeibo.iss
 
 #define MyAppName "Kakeibo"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "Kakeibo"
 #define MyAppExeName "Kakeibo.exe"
 
@@ -61,6 +61,9 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
+    { "Iniciar con Windows" (Configuracion > General): sin la app, la entrada
+      de inicio quedaria apuntando a un ejecutable que ya no existe. }
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', '{#MyAppName}');
     if (not UninstallSilent) and
        (MsgBox('¿Querés borrar también tus datos de Kakeibo (usuarios, movimientos, tarjetas, ' +
                'inversiones y configuración)?' + #13#10#13#10 +

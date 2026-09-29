@@ -13,18 +13,8 @@ from .. import theme
 from . import components
 
 
-# Los campos van sin borde propio dentro de un recuadro con fondo: asi la
-# etiqueta queda adentro del recuadro, en vez de cortar el trazado del borde.
-_PADDING_FILTRO = ft.padding.Padding(left=12, right=12, top=6, bottom=6)
-
-
-def _recuadro_filtro(control: ft.Control) -> ft.Container:
-    return ft.Container(
-        content=control,
-        bgcolor=theme.SURFACE_ALT,
-        border_radius=theme.RADIUS_SM,
-        border=theme.border_all(1, theme.BORDER),
-    )
+_PADDING_FILTRO = components.PADDING_FILTRO
+_recuadro_filtro = components.recuadro_filtro
 
 
 def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, categoria_repo: CategoriaRepository) -> ft.Control:

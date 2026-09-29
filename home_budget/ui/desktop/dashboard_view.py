@@ -112,6 +112,10 @@ def _construir_categorias_card(page: ft.Page, por_categoria) -> ft.Container:
     )
 
 
+_MESES_RESUMEN = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+                  "septiembre", "octubre", "noviembre", "diciembre"]
+
+
 def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cambio_service: CambioDivisaService) -> ft.Control:
     root = ft.Column(spacing=16, scroll=ft.ScrollMode.AUTO, expand=True)
 
@@ -152,7 +156,7 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
             if tt.total_pendiente_un_pago.cents > 0:
                 detalle_partes.append(f"1 pago: {tt.total_pendiente_un_pago.formatted()}")
             if tt.total_pendiente_cuotas.cents > 0:
-                detalle_partes.append(f"cuotas: {tt.total_pendiente_cuotas.formatted()}")
+                detalle_partes.append(f"cuotas del mes: {tt.total_pendiente_cuotas.formatted()}")
             if tt.total_pendiente_debitos and tt.total_pendiente_debitos.cents > 0:
                 detalle_partes.append(f"débitos automáticos del mes: {tt.total_pendiente_debitos.formatted()}")
             tarjeta_items.append(
@@ -161,7 +165,7 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
                         ft.Row(
                             [
                                 ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED, size=16, color=theme.TARJETAS_COLOR),
-                                ft.Text(tt.nombre, size=13, color=theme.TEXT_PRIMARY, expand=True),
+                                ft.Text(f"{tt.nombre} · {tt.moneda.value}", size=13, color=theme.TEXT_PRIMARY, expand=True),
                                 ft.Text(tt.total_pendiente.formatted(), size=13, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
                             ],
                             spacing=10,
@@ -177,9 +181,10 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
         tarjetas_card = theme.card(
             ft.Column(
                 [
-                    ft.Text("Pendiente en tarjetas", size=15, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
+                    ft.Text(f"Pendiente en tarjetas · {_MESES_RESUMEN[date.today().month - 1]}", size=15, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
+                    ft.Text("Lo que vence este mes: cuotas, compras en 1 pago y débitos automáticos.", size=11, color=theme.TEXT_MUTED),
                     ft.Divider(height=1, color=theme.BORDER),
-                    *(tarjeta_items or [components.empty_state("Sin cuotas pendientes.", "credit_card_rounded")]),
+                    *(tarjeta_items or [components.empty_state("Este mes no vence nada de tarjetas.", "credit_card_rounded")]),
                 ],
                 spacing=10,
             )
@@ -197,6 +202,27 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
                     ft.Divider(height=1, color=theme.BORDER),
                     ft.Row([ft.Text("ARS", size=13, color=theme.TEXT_SECONDARY, expand=True), ft.Text(resumen.prestamos_pendientes_ars.formatted(), size=14, weight=ft.FontWeight.BOLD, color=theme.PRESTAMOS_COLOR)]),
                     ft.Row([ft.Text("USD", size=13, color=theme.TEXT_SECONDARY, expand=True), ft.Text(resumen.prestamos_pendientes_usd.formatted(), size=14, weight=ft.FontWeight.BOLD, color=theme.PRESTAMOS_COLOR)]),
+                    *([ft.Divider(height=1, color=theme.BORDER),
+                       ft.Text("Próximas cuotas", size=12, weight=ft.FontWeight.W_600, color=theme.TEXT_SECONDARY)]
+                      if resumen.prestamos_activos else []),
+                    *[
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.ACCOUNT_BALANCE_ROUNDED, size=16, color=theme.PRESTAMOS_COLOR),
+                                ft.Column(
+                                    [
+                                        ft.Text(pc.nombre, size=13, color=theme.TEXT_PRIMARY, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
+                                        ft.Text(f"Cuota {pc.numero_cuota} de {pc.cantidad_cuotas} · vence el {pc.fecha_vencimiento.strftime('%d/%m/%Y')}",
+                                                size=11, color=theme.TEXT_SECONDARY),
+                                    ],
+                                    spacing=0, expand=True,
+                                ),
+                                ft.Text(pc.monto.formatted(), size=13, weight=ft.FontWeight.BOLD, color=theme.PRESTAMOS_COLOR),
+                            ],
+                            spacing=10,
+                        )
+                        for pc in resumen.prestamos_activos
+                    ],
                 ],
                 spacing=10,
             )
@@ -285,8 +311,8 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
 
         def continuar(_e):
             try:
-                cantidad_usd = Money.from_decimal((cantidad_f.value or "0").replace(",", "."), Moneda.USD)
-                cotizacion = Decimal((cotizacion_f.value or "0").replace(",", "."))
+                cantidad_usd = components.parse_monto(cantidad_f.value, Moneda.USD, "Cantidad de dólares")
+                cotizacion = components.parse_monto(cotizacion_f.value, Moneda.ARS, "Cotización").amount
                 if cantidad_usd.cents <= 0:
                     raise ValueError("La cantidad debe ser mayor a cero")
                 if cotizacion <= 0:
@@ -302,13 +328,13 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Compra / venta de dólares"),
+            title=components.titulo_con_error("Compra / venta de dólares", error_text),
             content=ft.Container(
                 ft.Column(
                     [
                         operacion_selector,
                         ft.Row([ft.Text("Fecha:", size=13, color=theme.TEXT_SECONDARY), fecha_text, ft.IconButton(icon=ft.Icons.CALENDAR_MONTH_ROUNDED, on_click=lambda e: (setattr(date_picker, "open", True), page.update()))]),
-                        cantidad_f, cotizacion_f, error_text,
+                        cantidad_f, cotizacion_f,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),

@@ -336,8 +336,6 @@ class CompraMensualService:
         tarjeta = self._tarjetas.obtener_tarjeta(tarjeta_id)
         if tarjeta is None:
             raise ValueError("La tarjeta elegida no existe")
-        if tarjeta.moneda != Moneda.ARS:
-            raise ValueError(f"La tarjeta {tarjeta.nombre} es en {tarjeta.moneda.value}: la compra mensual es en pesos")
         if cuotas < 1:
             raise ValueError("Las cuotas tienen que ser 1 o más")
         compra = self._tarjetas.registrar_compra(

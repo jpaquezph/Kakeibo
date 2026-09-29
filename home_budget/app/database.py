@@ -4,6 +4,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from .domain.models import CATEGORIAS_BASE
@@ -50,6 +51,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_categoria_tipo_column(conn)
     _ensure_tarjeta_color_column(conn)
     _ensure_tarjeta_unica_por_moneda(conn)
+    _ensure_tarjeta_dias_columnas(conn)
+    _unir_tarjetas_duplicadas(conn)
+    _ensure_prestamo_dia_vencimiento_column(conn)
     _ensure_usuario_recuperacion_columnas(conn)
     _ensure_usuario_perfil_columnas(conn)
     _ensure_movimiento_gasto_fijo_column(conn)
@@ -112,6 +116,74 @@ def _ensure_tarjeta_unica_por_moneda(conn: sqlite3.Connection) -> None:
         )
     finally:
         conn.execute("PRAGMA foreign_keys = ON")
+
+
+def _ensure_tarjeta_dias_columnas(conn: sqlite3.Connection) -> None:
+    """Agrega el dia de cierre y el de vencimiento del resumen a tarjetas
+    (opcionales: NULL si no se cargaron)."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(tarjetas)")}
+    if "dia_cierre" not in columnas:
+        conn.execute("ALTER TABLE tarjetas ADD COLUMN dia_cierre INTEGER CHECK (dia_cierre BETWEEN 1 AND 31)")
+    if "dia_vencimiento" not in columnas:
+        conn.execute("ALTER TABLE tarjetas ADD COLUMN dia_vencimiento INTEGER CHECK (dia_vencimiento BETWEEN 1 AND 31)")
+
+
+def _ensure_prestamo_dia_vencimiento_column(conn: sqlite3.Connection) -> None:
+    """Dia del mes en que vencen las cuotas de un prestamo (opcional)."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(prestamos)")}
+    if "dia_vencimiento" not in columnas:
+        conn.execute("ALTER TABLE prestamos ADD COLUMN dia_vencimiento INTEGER CHECK (dia_vencimiento BETWEEN 1 AND 31)")
+
+
+def _clave_tarjeta(nombre: str, banco: str, digitos: str) -> tuple[str, str, str]:
+    return (nombre.strip().casefold(), banco.strip().casefold(), digitos.strip())
+
+
+def _unir_tarjetas_duplicadas(conn: sqlite3.Connection) -> None:
+    """Desde la 1.3 una tarjeta opera en ARS y en USD. Antes habia que cargar
+    la misma tarjeta dos veces (una por moneda); esas copias (mismo nombre,
+    banco y ultimos digitos) se unen en la mas antigua: sus compras, debitos
+    automaticos y movimientos pasan a ella y la copia se borra. Antes de
+    tocar nada se guarda un backup de la base junto a ella."""
+    grupos: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
+    for t in conn.execute("SELECT * FROM tarjetas ORDER BY id").fetchall():
+        grupos.setdefault(_clave_tarjeta(t["nombre"], t["banco"], t["ultimos_digitos"]), []).append(t)
+    duplicadas = [g for g in grupos.values() if len(g) > 1]
+    if not duplicadas:
+        return
+
+    _backup_antes_de_migrar(conn, "antes-de-unir-tarjetas")
+    try:
+        for original, *copias in duplicadas:
+            for copia in copias:
+                for tabla in ("compras", "gastos_fijos", "movimientos"):
+                    conn.execute(f"UPDATE {tabla} SET tarjeta_id = ? WHERE tarjeta_id = ?", (original["id"], copia["id"]))
+                # Si la original no tenia dias de cierre/vencimiento, se toman de la copia.
+                conn.execute(
+                    "UPDATE tarjetas SET dia_cierre = COALESCE(dia_cierre, ?), dia_vencimiento = COALESCE(dia_vencimiento, ?) WHERE id = ?",
+                    (copia["dia_cierre"], copia["dia_vencimiento"], original["id"]),
+                )
+                conn.execute("DELETE FROM tarjetas WHERE id = ?", (copia["id"],))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _backup_antes_de_migrar(conn: sqlite3.Connection, motivo: str) -> None:
+    """Copia completa de la base, junto a ella, antes de una migracion que
+    modifica datos (no solo el esquema). Las bases en memoria no se copian."""
+    archivo = conn.execute("PRAGMA database_list").fetchone()["file"]
+    if not archivo:
+        return
+    origen = Path(archivo)
+    destino = origen.with_name(f"{origen.stem}_{motivo}_{datetime.now():%Y%m%d-%H%M%S}{origen.suffix}")
+    conn.commit()
+    copia = sqlite3.connect(str(destino))
+    try:
+        conn.backup(copia)
+    finally:
+        copia.close()
 
 
 def _ensure_usuario_recuperacion_columnas(conn: sqlite3.Connection) -> None:

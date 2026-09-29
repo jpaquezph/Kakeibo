@@ -108,9 +108,13 @@ class Tarjeta:
     nombre: str
     banco: str
     ultimos_digitos: str
+    # Sin uso desde la 1.3: una tarjeta opera en ARS y en USD y cada compra
+    # tiene su propia moneda. Se conserva por compatibilidad con la base.
     moneda: Moneda
     color: str = "#D6467E"
     activa: bool = True
+    dia_cierre: int | None = None  # dia del mes en que cierra el resumen (opcional)
+    dia_vencimiento: int | None = None  # dia del mes en que vence el resumen (opcional)
 
 
 @dataclass(slots=True)
@@ -190,12 +194,13 @@ class Prestamo:
     fecha_inicio: date
     estado: EstadoPrestamo = EstadoPrestamo.ACTIVO
     cuotas: list[CuotaPrestamo] = field(default_factory=list)
+    dia_vencimiento: int | None = None  # dia del mes en que vencen las cuotas (None: el de fecha_inicio)
 
     def __post_init__(self):
         if not self.nombre.strip():
             raise ValueError("El nombre del prestamo no puede estar vacio")
         if self.monto_original.cents <= 0:
-            raise ValueError("El monto original debe ser mayor a cero")
+            raise ValueError("El monto total debe ser mayor a cero")
         if self.cantidad_cuotas <= 0:
             raise ValueError("La cantidad de cuotas debe ser mayor a cero")
 

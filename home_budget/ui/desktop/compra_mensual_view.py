@@ -235,7 +235,7 @@ def build_compra_mensual_view(
 
         def _registrar_card(lista: ListaCompra, base_dd: ft.Dropdown, monto_f: ft.TextField) -> ft.Control:
             categorias = categoria_repo.listar(TipoMovimiento.EGRESO)
-            tarjetas = [t for t in tarjeta_service.listar_tarjetas() if t.moneda == Moneda.ARS]
+            tarjetas = tarjeta_service.listar_tarjetas()
             concepto_f = ft.TextField(label="Concepto", value=f"Compra mensual {lista.titulo}", filled=True, bgcolor=theme.SURFACE_ALT,
                                       border_radius=theme.RADIUS_SM, border_color=theme.BORDER, expand=True)
             fecha = _CampoFecha(page, "Fecha", date.today())

@@ -45,15 +45,32 @@ def test_pendiente_por_tarjeta_separa_un_pago_de_cuotas(conn):
     cat = _categoria_id(conn, "Tarjeta de crédito")
     tarjeta = tarjetas.crear_tarjeta("Visa", "Galicia", "1234", Moneda.ARS)
 
-    tarjetas.registrar_compra(tarjeta.id, date(2026, 1, 1), "Cena", "", Money.from_decimal("10000", Moneda.ARS), cat, 1)
+    tarjetas.registrar_compra(tarjeta.id, date(2026, 2, 3), "Cena", "", Money.from_decimal("10000", Moneda.ARS), cat, 1)
     tarjetas.registrar_compra(tarjeta.id, date(2026, 1, 1), "Heladera", "", Money.from_decimal("1000000", Moneda.ARS), cat, 10)
 
-    resumen = DashboardService(conn).resumen()
+    resumen = DashboardService(conn).resumen(hoy=date(2026, 2, 10))
     total_tarjeta = next(t for t in resumen.por_tarjeta if t.tarjeta_id == tarjeta.id)
 
     assert total_tarjeta.total_pendiente_un_pago.amount == 10000
-    assert total_tarjeta.total_pendiente_cuotas.amount == 1000000
-    assert total_tarjeta.total_pendiente.amount == 1010000
+    assert total_tarjeta.total_pendiente_cuotas.amount == 100000  # solo la cuota de febrero
+    assert total_tarjeta.total_pendiente.amount == 110000
+
+
+def test_pendiente_en_tarjetas_solo_suma_las_cuotas_del_mes(conn):
+    """Regresion: "Pendiente en tarjetas" sumaba todas las cuotas que faltan
+    de cada compra, no las que corresponden al mes."""
+    tarjetas = TarjetaService(conn)
+    cat = _categoria_id(conn, "Tarjeta de crédito")
+    visa = tarjetas.crear_tarjeta("Visa", "Galicia", "1234")
+    tarjetas.registrar_compra(visa.id, date(2026, 1, 15), "Tele", "", Money.from_decimal("600", Moneda.ARS), cat, 6)  # feb a jul
+    tarjetas.registrar_compra(visa.id, date(2026, 1, 15), "Libro", "", Money.from_decimal("30", Moneda.USD), cat, 3)  # feb a abr
+
+    def pendientes(hoy):
+        return {(tt.moneda, tt.total_pendiente.amount) for tt in DashboardService(conn).resumen(hoy=hoy).por_tarjeta}
+
+    assert pendientes(date(2026, 3, 1)) == {(Moneda.ARS, 100), (Moneda.USD, 10)}
+    assert pendientes(date(2026, 6, 1)) == {(Moneda.ARS, 100)}  # el libro ya termino
+    assert pendientes(date(2026, 9, 1)) == set()  # nada vence en septiembre
 
 
 def test_cantidad_de_prestamos_pendientes(conn):

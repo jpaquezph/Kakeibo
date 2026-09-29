@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+from decimal import Decimal
 from pathlib import Path
 
 import flet as ft
@@ -8,6 +10,73 @@ import flet.canvas as cv
 
 from ...app.domain.money import Money
 from .. import theme
+
+
+_NUMERO = re.compile(r"\d+([.,]\d+)?")
+_EJEMPLO = "por ejemplo 15250,50 o 15250.50"
+
+
+def parse_monto(texto: str | None, moneda, campo: str = "Monto") -> Money:
+    """Lee un monto escrito a mano, con mensajes claros si no es un número.
+    La coma y el punto valen los dos como separador de decimales ("1500,50" o
+    "1500.50"); no se usan separadores de miles."""
+    s = (texto or "").strip().replace(" ", "").replace("$", "")
+    if not s:
+        raise ValueError(f"{campo}: completá el monto")
+    if s.startswith("-"):
+        raise ValueError(f"{campo}: tiene que ser mayor a cero")
+    if (s.count(",") + s.count(".")) > 1:
+        raise ValueError(f"{campo}: usá un solo separador para los decimales, sin puntos de miles ({_EJEMPLO})")
+    if not _NUMERO.fullmatch(s):
+        raise ValueError(f"{campo}: ingresá solo números ({_EJEMPLO})")
+    valor = Decimal(s.replace(",", "."))
+    if valor <= 0:
+        raise ValueError(f"{campo}: tiene que ser mayor a cero")
+    return Money.from_decimal(valor, moneda)
+
+
+def parse_entero(texto: str | None, campo: str, minimo: int = 1, maximo: int | None = None) -> int:
+    s = (texto or "").strip()
+    if not s.isdigit():
+        raise ValueError(f"{campo}: ingresá un número entero")
+    valor = int(s)
+    if valor < minimo or (maximo is not None and valor > maximo):
+        rango = f"entre {minimo} y {maximo}" if maximo is not None else f"{minimo} o más"
+        raise ValueError(f"{campo}: tiene que ser {rango}")
+    return valor
+
+
+# Filtros: los campos van sin borde propio dentro de un recuadro con fondo;
+# asi la etiqueta queda adentro del recuadro, en vez de cortar el trazado del borde.
+PADDING_FILTRO = ft.padding.Padding(left=12, right=12, top=6, bottom=6)
+
+
+def recuadro_filtro(control: ft.Control) -> ft.Container:
+    return ft.Container(
+        content=control,
+        bgcolor=theme.SURFACE_ALT,
+        border_radius=theme.RADIUS_SM,
+        border=theme.border_all(1, theme.BORDER),
+    )
+
+
+def monto_editable(m: Money) -> str:
+    """El monto como se escribe a mano en un campo: "1500" o "1500,50"."""
+    return f"{m.amount:.2f}".replace(".", ",").removesuffix(",00")
+
+
+def cerrar_dialogo_con_escape(page, tecla: str) -> bool:
+    """Escape cierra la ventana (dialogo) abierta arriba de todo, igual que
+    tocar "Cancelar". Devuelve si cerro alguna; sin dialogos no hace nada."""
+    if tecla != "Escape":
+        return False
+    return page.pop_dialog() is not None
+
+
+def titulo_con_error(titulo: str, error_text: ft.Text) -> ft.Control:
+    """Titulo de dialogo con el mensaje de error debajo: siempre queda a la
+    vista, aunque el formulario sea largo y tenga scroll."""
+    return ft.Column([ft.Text(titulo), error_text], spacing=6, tight=True)
 
 
 def stat_card(title: str, value: Money, icon: str, is_income: bool | None = None) -> ft.Container:
@@ -84,6 +153,10 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
             ft.Column(
                 [
                     ft.Text(movimiento.concepto, size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                    # El detalle que cargo el usuario (antes solo se veia al editar).
+                    *([ft.Text(movimiento.detalle, size=12, color=theme.TEXT_SECONDARY, max_lines=2,
+                               overflow=ft.TextOverflow.ELLIPSIS, tooltip=movimiento.detalle)]
+                      if movimiento.detalle else []),
                     ft.Row(
                         [
                             category_chip(movimiento.categoria_nombre or "", movimiento.categoria_color or theme.TEXT_MUTED, movimiento.categoria_icono or "category"),

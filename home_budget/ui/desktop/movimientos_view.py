@@ -181,7 +181,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
 
         def guardar(_e):
             try:
-                monto = Money.from_decimal((monto_field.value or "0").replace(",", "."), moneda_dd.value)
+                monto = components.parse_monto(monto_field.value, moneda_dd.value)
                 if not categoria_dd.value:
                     raise ValueError("Elegí o creá una categoría")
                 if es_edicion:
@@ -217,7 +217,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Editar movimiento" if es_edicion else "Nuevo movimiento", color=theme.TEXT_PRIMARY),
+            title=components.titulo_con_error("Editar movimiento" if es_edicion else "Nuevo movimiento", error_text),
             content=ft.Container(
                 content=ft.Column(
                     [
@@ -230,7 +230,6 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                         nueva_categoria_row,
                         estado_dd,
                         fijo_nota,
-                        error_text,
                     ],
                     spacing=12,
                     scroll=ft.ScrollMode.AUTO,

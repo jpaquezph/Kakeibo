@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS tarjetas (
     moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
     color TEXT NOT NULL DEFAULT '#D6467E',
     activa INTEGER NOT NULL DEFAULT 1,
+    dia_cierre INTEGER CHECK (dia_cierre BETWEEN 1 AND 31),
+    dia_vencimiento INTEGER CHECK (dia_vencimiento BETWEEN 1 AND 31),
     UNIQUE (nombre, moneda)
 );
 
@@ -108,7 +110,8 @@ CREATE TABLE IF NOT EXISTS prestamos (
     cantidad_cuotas INTEGER NOT NULL CHECK (cantidad_cuotas > 0),
     fecha_inicio TEXT NOT NULL,
     estado TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo', 'pagado', 'cancelado')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    dia_vencimiento INTEGER CHECK (dia_vencimiento BETWEEN 1 AND 31)
 );
 
 CREATE TABLE IF NOT EXISTS configuracion (

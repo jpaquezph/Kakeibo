@@ -32,13 +32,14 @@ class PrestamoRepository:
             fecha_inicio=date.fromisoformat(row["fecha_inicio"]),
             estado=EstadoPrestamo(row["estado"]),
             cuotas=cuotas,
+            dia_vencimiento=row["dia_vencimiento"],
         )
 
     def crear_con_cuotas(self, prestamo: Prestamo) -> int:
         cur = self._conn.execute(
             """INSERT INTO prestamos
-               (nombre, detalle, monto_original_centavos, moneda, cantidad_cuotas, fecha_inicio, estado)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (nombre, detalle, monto_original_centavos, moneda, cantidad_cuotas, fecha_inicio, estado, dia_vencimiento)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 prestamo.nombre,
                 prestamo.detalle,
@@ -47,10 +48,35 @@ class PrestamoRepository:
                 prestamo.cantidad_cuotas,
                 prestamo.fecha_inicio.isoformat(),
                 prestamo.estado.value,
+                prestamo.dia_vencimiento,
             ),
         )
         prestamo_id = cur.lastrowid
-        for cuota in prestamo.cuotas:
+        self._insertar_cuotas(prestamo_id, prestamo.cuotas)
+        self._actualizar_estado_si_completo(prestamo_id)
+        self._conn.commit()
+        return prestamo_id
+
+    def reemplazar(self, prestamo: Prestamo) -> None:
+        """Reescribe el prestamo y todas sus cuotas (edicion completa), en una
+        sola transaccion."""
+        try:
+            self._conn.execute(
+                """UPDATE prestamos SET nombre = ?, detalle = ?, monto_original_centavos = ?, moneda = ?, cantidad_cuotas = ?,
+                   fecha_inicio = ?, dia_vencimiento = ?, estado = 'activo' WHERE id = ?""",
+                (prestamo.nombre, prestamo.detalle, prestamo.monto_original.cents, prestamo.monto_original.moneda.value,
+                 prestamo.cantidad_cuotas, prestamo.fecha_inicio.isoformat(), prestamo.dia_vencimiento, prestamo.id),
+            )
+            self._conn.execute("DELETE FROM cuotas_prestamo WHERE prestamo_id = ?", (prestamo.id,))
+            self._insertar_cuotas(prestamo.id, prestamo.cuotas)
+            self._actualizar_estado_si_completo(prestamo.id)
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def _insertar_cuotas(self, prestamo_id: int, cuotas: list[CuotaPrestamo]) -> None:
+        for cuota in cuotas:
             self._conn.execute(
                 """INSERT INTO cuotas_prestamo (prestamo_id, numero_cuota, monto_centavos, fecha_vencimiento, pagada, fecha_pago)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -59,8 +85,6 @@ class PrestamoRepository:
                     int(cuota.pagada), cuota.fecha_pago.isoformat() if cuota.fecha_pago else None,
                 ),
             )
-        self._conn.commit()
-        return prestamo_id
 
     def actualizar_datos(self, prestamo_id: int, nombre: str, detalle: str) -> None:
         self._conn.execute(
@@ -69,6 +93,30 @@ class PrestamoRepository:
         )
         self._conn.commit()
         return prestamo_id
+
+    def obtener_por_cuota(self, cuota_id: int) -> Prestamo | None:
+        row = self._conn.execute(
+            "SELECT p.* FROM prestamos p JOIN cuotas_prestamo cp ON cp.prestamo_id = p.id WHERE cp.id = ?", (cuota_id,)
+        ).fetchone()
+        return self._con_cuotas(row) if row else None
+
+    def cambiar_monto_cuotas(self, prestamo_id: int, cuota_ids: list[int], monto: Money) -> None:
+        """Pone ese monto a las cuotas indicadas y actualiza el monto total del
+        prestamo (la suma de todas sus cuotas)."""
+        try:
+            self._conn.executemany(
+                "UPDATE cuotas_prestamo SET monto_centavos = ? WHERE id = ? AND prestamo_id = ? AND pagada = 0",
+                [(monto.cents, cid, prestamo_id) for cid in cuota_ids],
+            )
+            self._conn.execute(
+                """UPDATE prestamos SET monto_original_centavos =
+                   (SELECT SUM(monto_centavos) FROM cuotas_prestamo WHERE prestamo_id = ?) WHERE id = ?""",
+                (prestamo_id, prestamo_id),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def marcar_cuota_pagada(self, cuota_id: int, fecha_pago: date) -> None:
         row = self._conn.execute("SELECT pagada, prestamo_id FROM cuotas_prestamo WHERE id = ?", (cuota_id,)).fetchone()

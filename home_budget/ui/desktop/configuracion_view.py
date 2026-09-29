@@ -6,6 +6,7 @@ from typing import Callable
 import flet as ft
 
 from ...app.auth.service import AuthService
+from ...app.services import inicio_windows
 from ...app.services.config import ConfigService
 from ...app.services.logs import ruta_log, ultimo_error
 from .. import theme
@@ -31,6 +32,8 @@ def build_configuracion_view(
             _seccion(page, "usuario", "Usuario", "person_rounded", build_usuario_seccion(page, auth, on_perfil_cambiado)),
             ft.Container(height=14),
             _seccion(page, "apariencia", "Apariencia", "palette_outlined", _apariencia(on_cambiar_tema)),
+            ft.Container(height=14),
+            _seccion(page, "general", "General", "settings_outlined", _general(page)),
             ft.Container(height=14),
             _seccion(page, "errores", "Registro de errores", "description_outlined", _registro_errores(page)),
         ],
@@ -83,6 +86,54 @@ def _apariencia(on_cambiar_tema: Callable[[bool], None]) -> ft.Control:
             ),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    )
+
+
+def _general(page: ft.Page) -> ft.Control:
+    exe = inicio_windows.ruta_ejecutable()
+    error_texto = ft.Text("", size=12, color=theme.EXPENSE_RED, visible=False)
+
+    def cambiar(e):
+        try:
+            if e.control.value:
+                inicio_windows.activar(exe)
+            else:
+                inicio_windows.desactivar()
+            error_texto.visible = False
+        except (OSError, ValueError) as exc:
+            e.control.value = inicio_windows.esta_activado()
+            error_texto.value = f"No se pudo cambiar: {exc}"
+            error_texto.visible = True
+        page.update()
+
+    descripcion = (
+        "Kakeibo se abre solo al prender la computadora e iniciar sesión en Windows."
+        if exe is not None
+        else "Disponible solo en la app instalada (ahora se está ejecutando desde el código)."
+    )
+    return ft.Column(
+        [
+            ft.Row(
+                [
+                    ft.Column(
+                        [
+                            ft.Text("Iniciar con Windows", size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                            ft.Text(descripcion, size=12, color=theme.TEXT_SECONDARY),
+                        ],
+                        spacing=2, expand=True,
+                    ),
+                    ft.Switch(
+                        value=exe is not None and inicio_windows.esta_activado(),
+                        active_color=theme.CONFIG_COLOR,
+                        disabled=exe is None,
+                        on_change=cambiar,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            ),
+            error_texto,
+        ],
+        spacing=6,
     )
 
 

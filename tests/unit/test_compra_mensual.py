@@ -167,14 +167,25 @@ def test_registrar_en_tarjeta_en_cuotas_con_tarjeta_cerrada(service, conn):
     assert tarjetas.listar_compras(visa.id) == []
 
 
-def test_registro_valida_monto_y_moneda_de_la_tarjeta(service, conn):
+def test_registro_valida_el_monto(service, conn):
     from datetime import date
-    from home_budget.app.services.tarjetas import TarjetaService
 
-    amex = TarjetaService(conn).crear_tarjeta("Amex", "Banco", "9999", Moneda.USD)
     lista = service.obtener_o_crear(2026, 9)
     with pytest.raises(ValueError):
         service.registrar_egreso(lista.id, date(2026, 9, 5), "Compra", ars("0"), _categoria(conn), "")
-    with pytest.raises(ValueError):
-        service.registrar_en_tarjeta(lista.id, amex.id, date(2026, 9, 5), "Compra", ars("100"), _categoria(conn))
     assert service.registros(lista.id) == []
+
+
+def test_registro_en_tarjeta_cargada_originalmente_en_dolares(service, conn):
+    """Desde la 1.3 las tarjetas operan en ARS y USD: la compra mensual (en
+    pesos) se puede cargar en cualquier tarjeta."""
+    from datetime import date
+    from home_budget.app.services.tarjetas import TarjetaService
+
+    tarjetas = TarjetaService(conn)
+    amex = tarjetas.crear_tarjeta("Amex", "Banco", "9999", Moneda.USD)
+    lista = service.obtener_o_crear(2026, 9)
+    service.registrar_en_tarjeta(lista.id, amex.id, date(2026, 9, 5), "Compra", ars("100"), _categoria(conn))
+
+    assert tarjetas.total_pendiente(amex.id, Moneda.ARS) == ars("100")
+    assert tarjetas.total_pendiente(amex.id, Moneda.USD).cents == 0

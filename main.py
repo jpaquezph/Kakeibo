@@ -11,7 +11,7 @@ from home_budget.app.services.config import CLAVE_TEMA, ConfigService
 from home_budget.app.services.logs import registrar_error
 from home_budget.ui import theme
 from home_budget.ui.desktop.app_shell import build_app_shell
-from home_budget.ui.desktop.components import RUTA_ASSETS
+from home_budget.ui.desktop.components import RUTA_ASSETS, cerrar_dialogo_con_escape
 from home_budget.ui.desktop.login_view import build_lock_view, build_login_view
 
 INACTIVITY_CHECK_INTERVAL_SECONDS = 10
@@ -92,7 +92,11 @@ def main(page: ft.Page) -> None:
         if auth.session is not None and not auth.session.locked:
             auth.session.touch()
 
-    page.on_keyboard_event = registrar_actividad
+    def on_teclado(e: ft.KeyboardEvent):
+        registrar_actividad(e)
+        cerrar_dialogo_con_escape(page, e.key)
+
+    page.on_keyboard_event = on_teclado
 
     mostrar_login()
 
