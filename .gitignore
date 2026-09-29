@@ -13,3 +13,10 @@ dist/
 installer/
 *.spec
 *.zip
+
+# Manual de uso: lo que se genera al correr scripts/manual
+scripts/manual/capturas/
+scripts/manual/anotadas/
+scripts/manual/demo.db
+scripts/manual/*.log
+scripts/manual/*.pdf
