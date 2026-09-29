@@ -13,6 +13,7 @@ from ...app.database import DEFAULT_DB_PATH
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.backup import crear_backup
 from ...app.services.cambio import CambioDivisaService
+from ...app.services.compra_mensual import CompraMensualService
 from ...app.services.config import CLAVE_TEMA, ConfigService
 from ...app.services.dashboard import DashboardService
 from ...app.services.gastos_fijos import GastoFijoService
@@ -24,6 +25,7 @@ from ...app.services.vencimientos import VencimientoService
 from .. import theme
 from . import components
 from .calendario_view import build_calendario_view
+from .compra_mensual_view import build_compra_mensual_view
 from .configuracion_view import build_configuracion_view
 from .dashboard_view import build_dashboard_view
 from .gastos_fijos_view import build_gastos_fijos_view
@@ -98,6 +100,7 @@ def _secciones():
         ("dashboard", "space_dashboard_rounded", "Resumen", theme.DASHBOARD_COLOR, theme.DASHBOARD_BG),
         ("movimientos", "swap_vert_rounded", "Movimientos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
         ("gastos_fijos", "event_repeat_rounded", "Gastos fijos", theme.MOVIMIENTOS_COLOR, theme.MOVIMIENTOS_BG),
+        ("compra_mensual", "shopping_cart_rounded", "Compra mensual", theme.COMPRAS_COLOR, theme.COMPRAS_BG),
         ("tarjetas", "credit_card_rounded", "Tarjetas", theme.TARJETAS_COLOR, theme.TARJETAS_BG),
         ("prestamos", "account_balance_rounded", "Préstamos", theme.PRESTAMOS_COLOR, theme.PRESTAMOS_BG),
         ("inversiones", "trending_up_rounded", "Inversiones", theme.INVERSIONES_COLOR, theme.INVERSIONES_BG),
@@ -117,6 +120,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
     gasto_fijo_service = GastoFijoService(conn)
     config_service = ConfigService(conn)
     inversion_service = InversionService(conn)
+    compra_service = CompraMensualService(conn)
 
     vencimiento_service = VencimientoService(tarjeta_service, prestamo_service, gasto_fijo_service)
 
@@ -131,6 +135,8 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
             return build_movimientos_view(page, movimiento_service, categoria_repo)
         if seccion == "gastos_fijos":
             return build_gastos_fijos_view(page, gasto_fijo_service, categoria_repo, tarjeta_service)
+        if seccion == "compra_mensual":
+            return build_compra_mensual_view(page, compra_service, categoria_repo, tarjeta_service)
         if seccion == "tarjetas":
             return build_tarjetas_view(page, tarjeta_service, categoria_repo, gasto_fijo_service)
         if seccion == "prestamos":

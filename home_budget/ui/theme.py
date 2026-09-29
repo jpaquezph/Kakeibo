@@ -46,6 +46,8 @@ _PALETA_CLARA = {
     "CONFIG_BG": "#ECEFF1",
     "INVERSIONES_COLOR": "#3F51B5",  # indigo
     "INVERSIONES_BG": "#E8EAF6",
+    "COMPRAS_COLOR": "#00897B",      # verde azulado (compra mensual)
+    "COMPRAS_BG": "#E0F2F1",
 }
 
 # Mismo criterio calido que el modo claro: marrones muy oscuros en vez de
@@ -80,6 +82,8 @@ _PALETA_OSCURA = {
     "CONFIG_BG": "#2A3236",
     "INVERSIONES_COLOR": "#7986CB",
     "INVERSIONES_BG": "#252A45",
+    "COMPRAS_COLOR": "#26A69A",
+    "COMPRAS_BG": "#1B3330",
 }
 
 # Declarados para que el editor los reconozca; el valor lo pone aplicar_modo().
@@ -112,6 +116,8 @@ CONFIG_COLOR: str
 CONFIG_BG: str
 INVERSIONES_COLOR: str
 INVERSIONES_BG: str
+COMPRAS_COLOR: str
+COMPRAS_BG: str
 
 MODO_OSCURO = False
 
@@ -253,4 +259,29 @@ def money_text(formatted: str, is_income: bool, size: int = 22) -> ft.Text:
         size=size,
         weight=ft.FontWeight.BOLD,
         color=INCOME_GREEN if is_income else EXPENSE_RED,
+    )
+
+
+def dialogo(titulo: str, contenido: ft.Control, acciones: list, icono: str | None = None,
+            color: str | None = None, ancho: int = 400) -> ft.AlertDialog:
+    """Dialogo con la estetica de la app: titulo mediano con un icono de color,
+    fondo de tarjeta y bordes redondeados (el AlertDialog por defecto de Flet
+    trae un titulo grande y fondo tintado)."""
+    color = color or DASHBOARD_COLOR
+    cabecera = [ft.Text(titulo, size=17, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY)]
+    if icono:
+        cabecera.insert(0, ft.Container(
+            ft.Icon(to_icon(icono), size=18, color=color),
+            bgcolor=ft.Colors.with_opacity(0.12, color), padding=8, border_radius=RADIUS_SM,
+        ))
+    return ft.AlertDialog(
+        modal=True,
+        title=ft.Row(cabecera, spacing=10),
+        content=ft.Container(contenido, width=ancho),
+        actions=acciones,
+        bgcolor=SURFACE,
+        shape=ft.RoundedRectangleBorder(radius=RADIUS),
+        title_padding=ft.padding.Padding(left=24, top=22, right=24, bottom=4),
+        content_padding=ft.padding.Padding(left=24, top=12, right=24, bottom=8),
+        actions_padding=ft.padding.Padding(left=24, top=8, right=24, bottom=20),
     )
