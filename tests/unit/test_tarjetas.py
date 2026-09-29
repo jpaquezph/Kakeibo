@@ -228,3 +228,65 @@ def test_eliminar_tarjeta_con_compras_borra_compras_y_cuotas(conn):
     assert service.obtener_tarjeta(tarjeta.id) is None
     assert conn.execute("SELECT COUNT(*) FROM cuotas_compra").fetchone()[0] == 1  # solo la cuota de la otra tarjeta
     assert len(service.listar_compras(otra.id)) == 1  # las otras tarjetas no se tocan
+
+
+def test_misma_tarjeta_en_pesos_y_en_dolares(conn):
+    """Regresion: una tarjeta que acepta ARS y USD se carga dos veces con el
+    mismo nombre; antes rompia por el UNIQUE sobre 'nombre'."""
+    service = TarjetaService(conn)
+    ars = service.crear_tarjeta("Visa", "Galicia", "1234", "ARS")
+    usd = service.crear_tarjeta("Visa", "Galicia", "1234", "USD")
+
+    assert ars.id != usd.id
+    assert {t.moneda for t in service.listar_tarjetas()} == {Moneda.ARS, Moneda.USD}
+
+
+def test_tarjeta_duplicada_en_la_misma_moneda_da_error_legible(conn):
+    service = TarjetaService(conn)
+    service.crear_tarjeta("Visa", "Galicia", "1234", "ARS")
+    otra = service.crear_tarjeta("Master", "Galicia", "5678", "ARS")
+
+    with pytest.raises(ValueError, match="Ya existe"):
+        service.crear_tarjeta("Visa", "Galicia", "1234", "ARS")
+    with pytest.raises(ValueError, match="Ya existe"):
+        service.editar_tarjeta(otra.id, "Visa", "Galicia", "5678", "ARS", otra.color)
+    assert len(service.listar_tarjetas()) == 2
+
+
+def test_migra_base_vieja_con_nombre_unico(tmp_path):
+    from home_budget.app.database import get_connection, init_db
+
+    vieja = get_connection(tmp_path / "vieja.db")
+    init_db(vieja)
+    # Simula el esquema anterior: nombre UNIQUE.
+    vieja.executescript(
+        """
+        PRAGMA foreign_keys = OFF;
+        DROP TABLE tarjetas;
+        CREATE TABLE tarjetas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT NOT NULL UNIQUE,
+            banco TEXT NOT NULL DEFAULT '',
+            ultimos_digitos TEXT NOT NULL DEFAULT '',
+            moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
+            color TEXT NOT NULL DEFAULT '#D6467E',
+            activa INTEGER NOT NULL DEFAULT 1
+        );
+        PRAGMA foreign_keys = ON;
+        """
+    )
+    service = TarjetaService(vieja)
+    visa = service.crear_tarjeta("Visa", "Galicia", "1234", "ARS", "#123456")
+    service.registrar_compra(visa.id, date(2026, 1, 1), "Compra", "", Money.from_decimal("100", Moneda.ARS), _categoria_id(vieja), 3)
+
+    init_db(vieja)  # al reabrir la app
+
+    service = TarjetaService(vieja)
+    usd = service.crear_tarjeta("Visa", "Galicia", "1234", "USD")
+    recargada = service.obtener_tarjeta(visa.id)
+    assert recargada.color == "#123456"
+    assert len(service.listar_compras(visa.id)) == 1
+    assert usd.id != visa.id
+    assert vieja.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert vieja.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    vieja.close()

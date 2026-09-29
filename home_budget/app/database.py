@@ -49,6 +49,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.executescript(migration.read_text(encoding="utf-8"))
     _ensure_categoria_tipo_column(conn)
     _ensure_tarjeta_color_column(conn)
+    _ensure_tarjeta_unica_por_moneda(conn)
     _ensure_usuario_recuperacion_columnas(conn)
     _ensure_usuario_perfil_columnas(conn)
     _ensure_movimiento_gasto_fijo_column(conn)
@@ -69,6 +70,48 @@ def _ensure_tarjeta_color_column(conn: sqlite3.Connection) -> None:
     columnas = {row["name"] for row in conn.execute("PRAGMA table_info(tarjetas)")}
     if "color" not in columnas:
         conn.execute("ALTER TABLE tarjetas ADD COLUMN color TEXT NOT NULL DEFAULT '#D6467E'")
+
+
+def _ensure_tarjeta_unica_por_moneda(conn: sqlite3.Connection) -> None:
+    """Las bases anteriores tenian 'nombre' UNIQUE en tarjetas, lo que impedia
+    cargar la misma tarjeta en ARS y en USD. SQLite no permite quitar un
+    UNIQUE, asi que se reconstruye la tabla con UNIQUE (nombre, moneda)."""
+    solo_nombre = False
+    for idx in conn.execute("PRAGMA index_list(tarjetas)").fetchall():
+        if not idx["unique"]:
+            continue
+        columnas = [c["name"] for c in conn.execute(f"PRAGMA index_info('{idx['name']}')")]
+        if columnas == ["nombre"]:
+            solo_nombre = True
+    if not solo_nombre:
+        return
+    conn.commit()
+    # Con foreign_keys activo, borrar la tabla vieja dispararia las referencias
+    # de compras, movimientos y gastos_fijos; se desactiva durante el cambio.
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript(
+            """
+            BEGIN;
+            CREATE TABLE tarjetas_nueva (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                banco TEXT NOT NULL DEFAULT '',
+                ultimos_digitos TEXT NOT NULL DEFAULT '',
+                moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
+                color TEXT NOT NULL DEFAULT '#D6467E',
+                activa INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (nombre, moneda)
+            );
+            INSERT INTO tarjetas_nueva (id, nombre, banco, ultimos_digitos, moneda, color, activa)
+                SELECT id, nombre, banco, ultimos_digitos, moneda, color, activa FROM tarjetas;
+            DROP TABLE tarjetas;
+            ALTER TABLE tarjetas_nueva RENAME TO tarjetas;
+            COMMIT;
+            """
+        )
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 def _ensure_usuario_recuperacion_columnas(conn: sqlite3.Connection) -> None:

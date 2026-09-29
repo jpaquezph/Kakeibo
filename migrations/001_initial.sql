@@ -33,12 +33,13 @@ CREATE TABLE IF NOT EXISTS categorias (
 
 CREATE TABLE IF NOT EXISTS tarjetas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT NOT NULL UNIQUE,
+    nombre TEXT NOT NULL,
     banco TEXT NOT NULL DEFAULT '',
     ultimos_digitos TEXT NOT NULL DEFAULT '',
     moneda TEXT NOT NULL CHECK (moneda IN ('ARS', 'USD')),
     color TEXT NOT NULL DEFAULT '#D6467E',
-    activa INTEGER NOT NULL DEFAULT 1
+    activa INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (nombre, moneda)
 );
 
 CREATE TABLE IF NOT EXISTS movimientos (

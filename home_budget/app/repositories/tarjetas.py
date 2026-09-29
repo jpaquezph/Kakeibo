@@ -23,18 +23,26 @@ class TarjetaRepository:
         )
 
     def crear(self, t: Tarjeta) -> int:
-        cur = self._conn.execute(
-            "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, color, activa) VALUES (?, ?, ?, ?, ?, ?)",
-            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa)),
-        )
+        try:
+            cur = self._conn.execute(
+                "INSERT INTO tarjetas (nombre, banco, ultimos_digitos, moneda, color, activa) VALUES (?, ?, ?, ?, ?, ?)",
+                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa)),
+            )
+        except sqlite3.IntegrityError:
+            self._conn.rollback()
+            raise ValueError(f'Ya existe una tarjeta "{t.nombre}" en {t.moneda.value}')
         self._conn.commit()
         return cur.lastrowid
 
     def actualizar(self, t: Tarjeta) -> None:
-        self._conn.execute(
-            "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, color=?, activa=? WHERE id=?",
-            (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa), t.id),
-        )
+        try:
+            self._conn.execute(
+                "UPDATE tarjetas SET nombre=?, banco=?, ultimos_digitos=?, moneda=?, color=?, activa=? WHERE id=?",
+                (t.nombre, t.banco, t.ultimos_digitos, t.moneda.value, t.color, int(t.activa), t.id),
+            )
+        except sqlite3.IntegrityError:
+            self._conn.rollback()
+            raise ValueError(f'Ya existe una tarjeta "{t.nombre}" en {t.moneda.value}')
         self._conn.commit()
 
     def eliminar(self, tarjeta_id: int) -> None:

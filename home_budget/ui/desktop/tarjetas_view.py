@@ -452,7 +452,7 @@ def build_tarjetas_view(
         tarjeta_dd = ft.Dropdown(
             label="Tarjeta",
             value=str(tarjeta_id_inicial),
-            options=[ft.dropdown.Option(str(t.id), t.nombre) for t in tarjetas_disponibles],
+            options=[ft.dropdown.Option(str(t.id), f"{t.nombre} ({t.moneda.value})") for t in tarjetas_disponibles],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
 
