@@ -15,6 +15,15 @@ def ruta_log() -> Path:
     return Path(NOMBRE_ARCHIVO).resolve()
 
 
+def registrar_error(etiqueta: str) -> None:
+    """Agrega al log el traceback de la excepcion que se esta manejando."""
+    import traceback
+    with open(ruta_log(), "a", encoding="utf-8") as f:
+        f.write(f"--- error en {etiqueta} ---\n")
+        f.write(traceback.format_exc())
+        f.write("\n")
+
+
 def leer_log(max_caracteres: int = 20000) -> str:
     """Contenido del log, recortado a los ultimos `max_caracteres` si es muy
     largo (para no tildar la UI con un archivo gigante). Devuelve "" si

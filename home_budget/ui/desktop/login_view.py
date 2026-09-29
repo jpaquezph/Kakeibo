@@ -3,8 +3,23 @@ from __future__ import annotations
 import flet as ft
 
 from ...app.auth.service import PREGUNTAS_SECRETAS, AuthError, AuthService
+from ...app.services.logs import registrar_error, ruta_log
 from .. import theme
 from . import components
+
+
+def _entrar(abrir_app, mostrar_error) -> None:
+    """Abre la app despues de un login o desbloqueo correcto. Si falla, muestra el
+    error en la misma pantalla (antes el boton parecia no hacer nada) y lo deja
+    en el registro de errores."""
+    try:
+        abrir_app()
+    except Exception as exc:
+        registrar_error("abrir la app despues de ingresar")
+        mostrar_error(
+            f"La contraseña es correcta, pero no se pudo abrir la aplicación ({type(exc).__name__}: {exc}). "
+            f"El detalle quedó en {ruta_log()}"
+        )
 
 
 def build_login_view(page: ft.Page, auth: AuthService, on_success, usuario_inicial: str | None = None) -> ft.Control:
@@ -80,7 +95,7 @@ def _vista_signup(page, auth, on_success, mostrar, permitir_volver: bool = False
             mostrar_error(str(exc))
             return
 
-        on_success(session)
+        _entrar(lambda: on_success(session), mostrar_error)
 
     for campo in (password_field, confirm_field, respuesta_field):
         campo.on_submit = submit
@@ -131,18 +146,18 @@ def _vista_login(page, auth, on_success, mostrar, usuario_inicial: str | None = 
         except (AuthError, ValueError) as exc:
             mostrar_error(str(exc))
             return
-        on_success(session)
+        _entrar(lambda: on_success(session), mostrar_error)
 
     password_field.on_submit = submit
 
     def ir_a_recuperar(_e=None):
-        mostrar(_vista_recuperar_paso1(page, auth, mostrar))
+        mostrar(_vista_recuperar_paso1(page, auth, on_success, mostrar))
 
     def ir_a_crear_usuario(_e=None):
         mostrar(_vista_signup(page, auth, on_success, mostrar, permitir_volver=True))
 
     def ir_a_eliminar_usuario(_e=None):
-        mostrar(_vista_eliminar_usuario(page, auth, mostrar))
+        mostrar(_vista_eliminar_usuario(page, auth, on_success, mostrar))
 
     return ft.Column(
         [
@@ -174,7 +189,7 @@ def _vista_login(page, auth, on_success, mostrar, usuario_inicial: str | None = 
     )
 
 
-def _vista_eliminar_usuario(page, auth, mostrar) -> ft.Control:
+def _vista_eliminar_usuario(page, auth, on_success, mostrar) -> ft.Control:
     usuarios = auth.listar_usernames()
     usuario_dd = ft.Dropdown(
         label="Usuario a eliminar",
@@ -186,7 +201,7 @@ def _vista_eliminar_usuario(page, auth, mostrar) -> ft.Control:
     error_text = ft.Text("", color=theme.EXPENSE_RED, size=13, visible=False)
 
     def volver(_e=None):
-        mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+        mostrar(_vista_login(page, auth, on_success, mostrar))
 
     def confirmar_eliminar(_e=None):
         def confirmar(_e2):
@@ -199,7 +214,7 @@ def _vista_eliminar_usuario(page, auth, mostrar) -> ft.Control:
                 page.update()
                 return
             page.pop_dialog()
-            mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+            mostrar(_vista_login(page, auth, on_success, mostrar))
 
         dialog = ft.AlertDialog(
             modal=True,
@@ -243,7 +258,7 @@ def _vista_eliminar_usuario(page, auth, mostrar) -> ft.Control:
     )
 
 
-def _vista_recuperar_paso1(page, auth, mostrar) -> ft.Control:
+def _vista_recuperar_paso1(page, auth, on_success, mostrar) -> ft.Control:
     username_field = _campo("Tu usuario", autofocus=True)
     error_text = ft.Text("", color=theme.EXPENSE_RED, size=13, visible=False)
 
@@ -255,12 +270,12 @@ def _vista_recuperar_paso1(page, auth, mostrar) -> ft.Control:
             error_text.visible = True
             page.update()
             return
-        mostrar(_vista_recuperar_paso2(page, auth, mostrar, username, pregunta))
+        mostrar(_vista_recuperar_paso2(page, auth, on_success, mostrar, username, pregunta))
 
     username_field.on_submit = continuar
 
     def volver(_e=None):
-        mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+        mostrar(_vista_login(page, auth, on_success, mostrar))
 
     return ft.Column(
         [
@@ -280,7 +295,7 @@ def _vista_recuperar_paso1(page, auth, mostrar) -> ft.Control:
     )
 
 
-def _vista_recuperar_paso2(page, auth, mostrar, username: str, pregunta: str) -> ft.Control:
+def _vista_recuperar_paso2(page, auth, on_success, mostrar, username: str, pregunta: str) -> ft.Control:
     respuesta_field = _campo("Tu respuesta", autofocus=True)
     nueva_field = _campo("Nueva contraseña", password=True, can_reveal_password=True)
     confirmar_field = _campo("Confirmar nueva contraseña", password=True, can_reveal_password=True)
@@ -299,12 +314,12 @@ def _vista_recuperar_paso2(page, auth, mostrar, username: str, pregunta: str) ->
             error_text.visible = True
             page.update()
             return
-        mostrar(_vista_recuperar_exito(page, auth, mostrar))
+        mostrar(_vista_recuperar_exito(page, auth, on_success, mostrar))
 
     confirmar_field.on_submit = restablecer
 
     def volver(_e=None):
-        mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+        mostrar(_vista_login(page, auth, on_success, mostrar))
 
     return ft.Column(
         [
@@ -327,9 +342,9 @@ def _vista_recuperar_paso2(page, auth, mostrar, username: str, pregunta: str) ->
     )
 
 
-def _vista_recuperar_exito(page, auth, mostrar) -> ft.Control:
+def _vista_recuperar_exito(page, auth, on_success, mostrar) -> ft.Control:
     def volver(_e=None):
-        mostrar(_vista_login(page, auth, lambda s: None, mostrar))
+        mostrar(_vista_login(page, auth, on_success, mostrar))
 
     return ft.Column(
         [
@@ -393,7 +408,7 @@ def _contenido_lock(page, auth: AuthService, session, on_unlock, usar_pin: bool,
                     return
                 mostrar_error(str(exc))
                 return
-            on_unlock()
+            _entrar(on_unlock, mostrar_error)
 
         def on_change(_e):
             if len(campo.value or "") == 4:
@@ -416,7 +431,7 @@ def _contenido_lock(page, auth: AuthService, session, on_unlock, usar_pin: bool,
             except AuthError:
                 mostrar_error("Contraseña incorrecta")
                 return
-            on_unlock()
+            _entrar(on_unlock, mostrar_error)
 
         campo.on_submit = submit
         instruccion = f"Ingresá tu contraseña para continuar, {session.username}."

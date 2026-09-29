@@ -73,7 +73,8 @@ flutter doctor          # verificar que Visual Studio se detecta OK
             Markdowns tests "Kakeibo-Windows.zip" "Kakeibo.spec" "kakeibo.db" ^
             "kakeibo_debug.log" "README.md" "requirements.txt" "pytest.ini" ^
             ".gitignore" "build" "Logo-Kakeibo.png" "Logo-Kakeibo-claro.png" ^
-            "Relevamiento tecnico.txt" docs scripts "Documentacion usuario" "kakeibo_run.log"
+            "Relevamiento tecnico.txt" docs scripts "Documentacion usuario" "kakeibo_run.log" ^
+            "Vector kakiebo.psd"
 ```
 
 (El `--exclude` es importante: sin él, `flet build` copia *toda* la carpeta

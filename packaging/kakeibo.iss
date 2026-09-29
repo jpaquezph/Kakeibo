@@ -1,4 +1,4 @@
-; Script de Inno Setup para generar KakeiboSetup.exe.
+﻿; Script de Inno Setup para generar KakeiboSetup.exe.
 ; Requiere haber generado antes build\windows con `flet build windows` (ver
 ; README.md, seccion "Empaquetado"). Se usa flet build (no flet pack) porque
 ; ese motor no depende de Windows Media Foundation (MFReadWrite.dll), que en
@@ -8,7 +8,7 @@
 ;   "C:\Users\<usuario>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" packaging\kakeibo.iss
 
 #define MyAppName "Kakeibo"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Kakeibo"
 #define MyAppExeName "Kakeibo.exe"
 
@@ -32,6 +32,9 @@ SolidCompression=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=..\assets\icon.ico
 WizardStyle=modern
+; Al terminar de instalar/desinstalar avisa a Windows que refresque los iconos,
+; para que el acceso directo no quede mostrando un icono viejo de la cache.
+ChangesAssociations=yes
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -48,3 +51,25 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+{ El desinstalador solo borra lo que instalo. Lo que la app crea despues queda:
+  la base (app\kakeibo.db, con TODOS los datos del usuario), los logs y la
+  carpeta de datos de Flet en %APPDATA%\Kakeibo. Como incluye los datos, se
+  pregunta antes de borrarlo; en una desinstalacion silenciosa no se borra. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    if (not UninstallSilent) and
+       (MsgBox('¿Querés borrar también tus datos de Kakeibo (usuarios, movimientos, tarjetas, ' +
+               'inversiones y configuración)?' + #13#10#13#10 +
+               'Si elegís Sí, se eliminan definitivamente y no se pueden recuperar. ' +
+               'Si pensás volver a instalar Kakeibo, elegí No o hacé un backup antes.',
+               mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES) then
+    begin
+      DelTree(ExpandConstant('{app}'), True, True, True);
+      DelTree(ExpandConstant('{userappdata}\{#MyAppName}'), True, True, True);
+    end;
+  end;
+end;

@@ -8,6 +8,7 @@ import flet as ft
 from home_budget.app.auth.service import AuthService
 from home_budget.app.database import DEFAULT_DB_PATH, get_connection, init_db
 from home_budget.app.services.config import CLAVE_TEMA, ConfigService
+from home_budget.app.services.logs import registrar_error
 from home_budget.ui import theme
 from home_budget.ui.desktop.app_shell import build_app_shell
 from home_budget.ui.desktop.components import RUTA_ASSETS
@@ -43,19 +44,12 @@ def main(page: ft.Page) -> None:
     monitor_task_started = {"value": False}
     aviso_vencimientos_mostrado = {"value": False}
 
-    def _log_error(etiqueta: str) -> None:
-        import traceback
-        with open("kakeibo_debug.log", "a", encoding="utf-8") as f:
-            f.write(f"--- error en {etiqueta} ---\n")
-            f.write(traceback.format_exc())
-            f.write("\n")
-
     def mostrar_login(usuario: str | None = None):
         page.overlay.clear()
         try:
             root.content = build_login_view(page, auth, on_success=lambda session: mostrar_app(), usuario_inicial=usuario)
         except Exception:
-            _log_error("mostrar_login")
+            registrar_error("mostrar_login")
             raise
         page.update()
 
@@ -63,11 +57,15 @@ def main(page: ft.Page) -> None:
         try:
             root.content = build_lock_view(page, auth, on_unlock=mostrar_app)
         except Exception:
-            _log_error("mostrar_lock")
+            registrar_error("mostrar_lock")
             raise
         page.update()
 
     def mostrar_app():
+        # Si algo falla, se vuelve a la pantalla anterior (login o bloqueo) y se
+        # relanza: esa pantalla registra el error y lo muestra, en lugar de
+        # quedarse sin respuesta.
+        anterior = root.content
         try:
             # El aviso de vencimientos sale una sola vez por apertura de la app,
             # no cada vez que se desbloquea o se vuelve a iniciar sesion.
@@ -75,11 +73,11 @@ def main(page: ft.Page) -> None:
                 page, conn, auth, on_logout=mostrar_login,
                 mostrar_aviso_vencimientos=not aviso_vencimientos_mostrado["value"],
             )
+            page.update()
             aviso_vencimientos_mostrado["value"] = True
         except Exception:
-            _log_error("mostrar_app")
+            root.content = anterior
             raise
-        page.update()
         if not monitor_task_started["value"]:
             monitor_task_started["value"] = True
             page.run_task(monitor_inactividad)
