@@ -20,13 +20,15 @@ class GastoFijoRepository:
             dia_mes=row["dia_mes"],
             activo=bool(row["activo"]),
             tarjeta_id=row["tarjeta_id"],
+            metodo_pago=row["metodo_pago"],
         )
 
     def crear(self, g: GastoFijo) -> int:
         cur = self._conn.execute(
-            """INSERT INTO gastos_fijos (concepto, detalle, monto_centavos, moneda, categoria_id, dia_mes, activo, tarjeta_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (g.concepto, g.detalle, g.monto.cents, g.monto.moneda.value, g.categoria_id, g.dia_mes, int(g.activo), g.tarjeta_id),
+            """INSERT INTO gastos_fijos (concepto, detalle, monto_centavos, moneda, categoria_id, dia_mes, activo, tarjeta_id, metodo_pago)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (g.concepto, g.detalle, g.monto.cents, g.monto.moneda.value, g.categoria_id, g.dia_mes, int(g.activo), g.tarjeta_id,
+             g.metodo_pago),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -34,8 +36,9 @@ class GastoFijoRepository:
     def actualizar(self, g: GastoFijo) -> None:
         self._conn.execute(
             """UPDATE gastos_fijos SET concepto = ?, detalle = ?, monto_centavos = ?, moneda = ?,
-                 categoria_id = ?, dia_mes = ?, activo = ?, tarjeta_id = ? WHERE id = ?""",
-            (g.concepto, g.detalle, g.monto.cents, g.monto.moneda.value, g.categoria_id, g.dia_mes, int(g.activo), g.tarjeta_id, g.id),
+                 categoria_id = ?, dia_mes = ?, activo = ?, tarjeta_id = ?, metodo_pago = ? WHERE id = ?""",
+            (g.concepto, g.detalle, g.monto.cents, g.monto.moneda.value, g.categoria_id, g.dia_mes, int(g.activo), g.tarjeta_id,
+             g.metodo_pago, g.id),
         )
         self._conn.commit()
 

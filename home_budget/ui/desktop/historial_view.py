@@ -18,7 +18,8 @@ _recuadro_filtro = components.recuadro_filtro
 
 
 def build_historial_view(page: ft.Page, movimiento_service: MovimientoService, categoria_repo: CategoriaRepository) -> ft.Control:
-    categorias = categoria_repo.listar()
+    # Incluye las quitadas: los movimientos viejos las siguen teniendo.
+    categorias = categoria_repo.listar(incluir_quitadas=True)
     resultados_col = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, expand=True)
     contador_text = ft.Text("", size=12, color=theme.TEXT_MUTED)
 

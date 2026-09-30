@@ -28,6 +28,19 @@ def _formatear_totales(montos) -> str:
     return " + ".join(partes) if partes else Money.zero(Moneda.ARS).formatted()
 
 
+# Filtro de las compras: se mantiene al cambiar de tarjeta o de seccion.
+_filtro = {"forma": "todas"}
+
+
+def filtrar_por_forma(compras, forma: str) -> list:
+    """`forma`: "todas", "cuotas" (2 o mas cuotas) o "un_pago"."""
+    if forma == "cuotas":
+        return [c for c in compras if c.cantidad_cuotas > 1]
+    if forma == "un_pago":
+        return [c for c in compras if c.cantidad_cuotas == 1]
+    return list(compras)
+
+
 def build_tarjetas_view(
     page: ft.Page, tarjeta_service: TarjetaService, categoria_repo: CategoriaRepository, gasto_fijo_service: GastoFijoService,
 ) -> ft.Control:
@@ -77,23 +90,23 @@ def build_tarjetas_view(
                         ],
                         spacing=6,
                     ),
-                    ft.Text(f"{t.banco}  ••{t.ultimos_digitos}" if t.ultimos_digitos else t.banco,
-                            color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    ft.Container(height=2),
+                    # Banco, digitos, cierre y vencimiento en una sola linea chica
+                    # (antes eran dos y la ficha ocupaba mucho alto).
+                    ft.Text(" · ".join(p for p in [
+                                f"{t.banco} ••{t.ultimos_digitos}" if t.ultimos_digitos else t.banco,
+                                f"cierra {t.dia_cierre}" if t.dia_cierre else "",
+                                f"vence {t.dia_vencimiento}" if t.dia_vencimiento else ""] if p),
+                            color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=10, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
                     *([ft.Text(f"Pendiente {p.moneda.value}: {p.formatted()}", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD,
                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=p.formatted())
                        for p in pendientes if p.cents]
                       or [ft.Text("Sin pendientes", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD)]),
-                    *([ft.Text(" · ".join(p for p in [f"Cierra el {t.dia_cierre}" if t.dia_cierre else "",
-                                                     f"Vence el {t.dia_vencimiento}" if t.dia_vencimiento else ""] if p),
-                               color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=11)]
-                      if (t.dia_cierre or t.dia_vencimiento) else []),
                 ],
-                spacing=2,
+                spacing=1,
             ),
-            width=220,
-            height=138,
-            padding=12,
+            width=210,
+            height=92,
+            padding=theme.pad(horizontal=12, vertical=8),
             border_radius=theme.RADIUS,
             gradient=ft.LinearGradient(
                 begin=ft.Alignment.TOP_LEFT,
@@ -124,11 +137,51 @@ def build_tarjetas_view(
             detalle_col.controls.append(debitos)
         if not compras:
             detalle_col.controls.append(components.empty_state("Esta tarjeta todavía no tiene compras.", "shopping_bag_rounded"))
+            return
+        visibles = filtrar_por_forma(compras, _filtro["forma"])
+        detalle_col.controls.append(_barra_filtro(visibles, len(compras)))
+        if not visibles:
+            detalle_col.controls.append(components.empty_state("Ninguna compra coincide con el filtro.", "filter_alt_off_rounded"))
         # Grilla de fichas compactas: 2 por fila con la ventana normal, 3 con la grande.
         detalle_col.controls.append(ft.ResponsiveRow(
-            [ft.Container(_compra_card(c, tarjeta_actual), col={"xs": 12, "md": 6, "xl": 4}) for c in compras],
+            [ft.Container(_compra_card(c, tarjeta_actual), col={"xs": 12, "md": 6, "xl": 4}) for c in visibles],
             spacing=12, run_spacing=12,
         ))
+
+    def _barra_filtro(visibles: list, total: int) -> ft.Control:
+        mostradas = len(visibles)
+        def cambiar(e):
+            _filtro["forma"] = e.control.value
+            refrescar_detalle()
+            page.update()
+
+        forma_dd = ft.Dropdown(
+            label="Forma de pago", value=_filtro["forma"], width=170, on_select=cambiar,
+            options=[ft.dropdown.Option("todas", "Todas"), ft.dropdown.Option("cuotas", "En cuotas"),
+                     ft.dropdown.Option("un_pago", "1 pago")],
+            border=ft.InputBorder.NONE, content_padding=components.PADDING_FILTRO,
+        )
+        contador = f"Mostrando {mostradas} de {total}" if _filtro["forma"] != "todas" else f"{total} compra(s)"
+        # Totales de las compras que muestra el filtro elegido (por moneda, sin mezclar).
+        que = {"todas": "de las compras", "cuotas": "en cuotas", "un_pago": "en 1 pago"}[_filtro["forma"]]
+        totales = ft.Row(
+            [
+                ft.Text(f"Total {que}:", size=12, color=theme.TEXT_SECONDARY),
+                ft.Text(_formatear_totales([c.monto_total for c in visibles]), size=13, weight=ft.FontWeight.BOLD,
+                        color=theme.TARJETAS_COLOR),
+                ft.Text("· Pendiente:", size=12, color=theme.TEXT_SECONDARY),
+                ft.Text(_formatear_totales([c.monto_pendiente for c in visibles]), size=13, weight=ft.FontWeight.BOLD,
+                        color=theme.EXPENSE_RED),
+            ],
+            spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ) if visibles else ft.Container()
+        # Los totales van a la derecha, en la misma fila del filtro (sin wrap:
+        # en una fila con wrap no puede ir el espaciador con expand).
+        return ft.Row(
+            [ft.Icon(ft.Icons.FILTER_LIST_ROUNDED, size=18, color=theme.TEXT_SECONDARY), components.recuadro_filtro(forma_dd),
+             ft.Text(contador, size=12, color=theme.TEXT_SECONDARY), ft.Container(expand=True), totales],
+            spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
 
     def _pendiente_del_mes(tarjeta_id: int):
         """Cuotas y debitos automaticos sin pagar de este mes, y el total."""
@@ -800,6 +853,6 @@ def build_tarjetas_view(
     refrescar_tarjetas()
 
     return ft.Column(
-        [header, ft.Container(height=12), tarjetas_row, ft.Container(height=16), ft.Divider(color=theme.BORDER), ft.Container(height=8), detalle_col],
+        [header, ft.Container(height=10), tarjetas_row, ft.Container(height=6), ft.Divider(color=theme.BORDER), ft.Container(height=4), detalle_col],
         expand=True, spacing=0,
     )

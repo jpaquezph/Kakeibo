@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 import flet as ft
 
-from ...app.domain.models import EstadoMovimiento, Movimiento, TipoMovimiento
+from ...app.domain.models import METODOS_PAGO, EstadoMovimiento, Movimiento, TipoMovimiento
 from ...app.domain.money import Money, Moneda
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.movimientos import MovimientoService
@@ -57,8 +57,15 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
     def nuevo(_e=None):
         abrir_formulario(None)
 
-    def categorias_de(tipo: TipoMovimiento) -> list:
-        return [c for c in categorias if c.tipo == tipo]
+    def categorias_de(tipo: TipoMovimiento, actual: int | None = None) -> list:
+        """Las categorias del tipo; `actual` se agrega si fue quitada, para
+        que editar un movimiento viejo no le cambie la categoria."""
+        opciones = [c for c in categorias if c.tipo == tipo]
+        if actual is not None and all(c.id != actual for c in opciones):
+            quitada = categoria_repo.obtener(actual)
+            if quitada is not None and quitada.tipo == tipo:
+                opciones.append(quitada)
+        return opciones
 
     def abrir_formulario(movimiento: Movimiento | None):
         es_edicion = movimiento is not None
@@ -99,7 +106,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
 
-        opciones_iniciales = categorias_de(tipo_inicial)
+        opciones_iniciales = categorias_de(tipo_inicial, movimiento.categoria_id if es_edicion else None)
         categoria_dd = ft.Dropdown(
             label="Categoría",
             value=str(movimiento.categoria_id) if es_edicion else (str(opciones_iniciales[0].id) if opciones_iniciales else None),
@@ -111,6 +118,13 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             label="Estado",
             value=movimiento.estado.value if es_edicion else EstadoMovimiento.CONFIRMADO.value,
             options=[ft.dropdown.Option(e.value) for e in EstadoMovimiento],
+            filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+        )
+        # Sin "tarjeta de credito": esas compras se cargan en Tarjetas.
+        metodo_dd = ft.Dropdown(
+            label="Medio de cobro" if tipo_inicial == TipoMovimiento.INGRESO else "Método de pago",
+            value=movimiento.metodo_pago if es_edicion else "efectivo",
+            options=[ft.dropdown.Option("", "Sin especificar")] + [ft.dropdown.Option(k, v) for k, v in METODOS_PAGO.items()],
             filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
         fijo_nota = ft.Text(
@@ -136,6 +150,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
             categoria_dd.options = [ft.dropdown.Option(str(c.id), c.nombre) for c in opciones]
             categoria_dd.value = str(opciones[0].id) if opciones else None
             fijo_nota.visible = tipo == TipoMovimiento.EGRESO
+            metodo_dd.label = "Medio de cobro" if tipo == TipoMovimiento.INGRESO else "Método de pago"
             nueva_categoria_row.visible = False
             nueva_categoria_field.value = ""
             page.update()
@@ -192,6 +207,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                     movimiento.monto = monto
                     movimiento.categoria_id = int(categoria_dd.value)
                     movimiento.estado = EstadoMovimiento(estado_dd.value)
+                    movimiento.metodo_pago = metodo_dd.value or ""
                     movimiento_service.editar(movimiento)
                 else:
                     movimiento_service.registrar(
@@ -202,6 +218,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                         monto=monto,
                         categoria_id=int(categoria_dd.value),
                         estado=EstadoMovimiento(estado_dd.value),
+                        metodo_pago=metodo_dd.value or "",
                     )
             except (ValueError, ArithmeticError) as exc:
                 error_text.value = str(exc)
@@ -228,6 +245,7 @@ def build_movimientos_view(page: ft.Page, movimiento_service: MovimientoService,
                         ft.Row([ft.Container(monto_field, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
                         categoria_row,
                         nueva_categoria_row,
+                        metodo_dd,
                         estado_dd,
                         fijo_nota,
                     ],

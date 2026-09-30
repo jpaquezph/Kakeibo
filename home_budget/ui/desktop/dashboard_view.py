@@ -70,6 +70,27 @@ def _construir_pagado_card(pagos) -> ft.Container:
     return card
 
 
+def _construir_pendiente_card(pendiente: dict[Moneda, Money]) -> ft.Container:
+    """Un solo numero: todo lo que falta pagar este mes, sin detalle. Pesos y
+    dolares por separado (el de dolares solo si hay algo)."""
+    montos = [pendiente[m] for m in Moneda if m in pendiente and (pendiente[m].cents or m == Moneda.ARS)]
+    nada = all(m.cents == 0 for m in montos)
+    mes = _MESES_RESUMEN[date.today().month - 1]
+    color = theme.INCOME_GREEN if nada else theme.EXPENSE_RED
+    # Una sola linea, chica: es un dato de un vistazo, no una seccion.
+    return theme.card(
+        ft.Row(
+            [
+                ft.Icon(ft.Icons.PENDING_ACTIONS_ROUNDED, color=color, size=18),
+                ft.Text(f"Pendiente de pagar en {mes}", size=13, weight=ft.FontWeight.W_600, color=theme.TEXT_SECONDARY),
+                *[ft.Text(m.formatted(), size=15, weight=ft.FontWeight.BOLD, color=color) for m in montos],
+            ],
+            spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=10,
+    )
+
+
 def _construir_categorias_card(page: ft.Page, por_categoria) -> ft.Container:
     distribuciones = {m: distribucion_por_categoria(por_categoria, m) for m in Moneda}
     monedas = [m for m in Moneda if distribuciones[m]]
@@ -265,6 +286,7 @@ def build_dashboard_view(page: ft.Page, dashboard_service: DashboardService, cam
         return [
             ft.Text("Resumen general", size=22, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
             ft.Container(height=4),
+            _construir_pendiente_card(resumen.pendiente_del_mes),
             *moneda_rows,
             ft.Container(height=8),
             ft.ResponsiveRow(

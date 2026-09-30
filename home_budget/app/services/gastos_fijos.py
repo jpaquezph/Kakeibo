@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 
 from ..domain.dates import add_months
-from ..domain.models import EstadoMovimiento, GastoFijo, Movimiento, TipoMovimiento
+from ..domain.models import METODOS_PAGO, EstadoMovimiento, GastoFijo, Movimiento, TipoMovimiento
 from ..domain.money import Money
 from ..repositories.gastos_fijos import GastoFijoRepository
 from ..repositories.movimientos import MovimientoRepository
@@ -57,6 +57,15 @@ class GastoFijoService:
         return tarjeta
 
     @staticmethod
+    def _validar_metodo(metodo_pago: str, tarjeta) -> str:
+        """Con debito automatico el metodo es la tarjeta: no se guarda otro."""
+        if tarjeta is not None:
+            return ""
+        if metodo_pago and metodo_pago not in METODOS_PAGO:
+            raise ValueError("Método de pago inválido")
+        return metodo_pago
+
+    @staticmethod
     def _dia_guardado(tarjeta) -> int:
         """Con debito automatico el vencimiento es el de la tarjeta; se guarda
         igual un dia valido (1-28) por si la tarjeta se borra."""
@@ -64,30 +73,47 @@ class GastoFijoService:
 
     def registrar(
         self, concepto: str, detalle: str, monto: Money, categoria_id: int, dia_mes: int | None, tarjeta_id: int | None = None,
+        metodo_pago: str = "",
     ) -> GastoFijo:
         """`tarjeta_id`: si se paga por debito automatico, la tarjeta a la que se
-        debita. En ese caso `dia_mes` se ignora: vence cuando vence la tarjeta."""
+        debita. En ese caso `dia_mes` se ignora: vence cuando vence la tarjeta.
+        `metodo_pago`: clave de METODOS_PAGO (efectivo, transferencia...)."""
         if not concepto.strip():
             raise ValueError("El concepto no puede estar vacio")
         tarjeta = self._validar_tarjeta(tarjeta_id, monto)
+        metodo_pago = self._validar_metodo(metodo_pago, tarjeta)
         if tarjeta is not None:
             dia_mes = self._dia_guardado(tarjeta)
         elif dia_mes is None or not (1 <= dia_mes <= 28):
             raise ValueError("El dia del mes debe estar entre 1 y 28")
         gasto = GastoFijo(id=None, concepto=concepto.strip(), detalle=detalle, monto=monto, categoria_id=categoria_id,
-                          dia_mes=dia_mes, tarjeta_id=tarjeta_id)
+                          dia_mes=dia_mes, tarjeta_id=tarjeta_id, metodo_pago=metodo_pago)
         gasto.id = self._repo.crear(gasto)
         return gasto
 
-    def editar(self, gasto_fijo_id: int, nuevo_monto: Money, nuevo_dia_mes: int | None, tarjeta_id: int | None | object = ...) -> GastoFijo:
-        """Cambia el monto y/o el dia de vencimiento a partir de ahora. Los
-        movimientos ya registrados en meses anteriores no se modifican. Con
-        debito automatico el dia se ignora: vence cuando vence la tarjeta."""
+    def editar(
+        self, gasto_fijo_id: int, nuevo_monto: Money, nuevo_dia_mes: int | None, tarjeta_id: int | None | object = ...,
+        *, concepto: str | None = None, detalle: str | None = None, categoria_id: int | None = None,
+        metodo_pago: str | None = None,
+    ) -> GastoFijo:
+        """Cambia los datos del gasto a partir de ahora (monto y moneda, dia de
+        vencimiento, debito automatico, concepto, detalle, categoria y metodo de
+        pago). Los que no se pasan quedan como estaban. Los pagos ya
+        registrados no se modifican. Con debito automatico el dia se ignora:
+        vence cuando vence la tarjeta."""
         gasto = self.obtener(gasto_fijo_id)
         if gasto is None:
             raise ValueError("Gasto fijo inexistente")
         if nuevo_monto.cents <= 0:
             raise ValueError("El monto debe ser mayor a cero")
+        if concepto is not None:
+            if not concepto.strip():
+                raise ValueError("El concepto no puede estar vacío")
+            gasto.concepto = concepto.strip()
+        if detalle is not None:
+            gasto.detalle = detalle.strip()
+        if categoria_id is not None:
+            gasto.categoria_id = categoria_id
         if tarjeta_id is not ...:  # sin pasarlo, se mantiene el debito que tenia
             gasto.tarjeta_id = tarjeta_id
         tarjeta = self._validar_tarjeta(gasto.tarjeta_id, nuevo_monto)
@@ -95,10 +121,24 @@ class GastoFijoService:
             nuevo_dia_mes = self._dia_guardado(tarjeta)
         elif nuevo_dia_mes is None or not (1 <= nuevo_dia_mes <= 28):
             raise ValueError("El día de vencimiento debe estar entre 1 y 28")
+        gasto.metodo_pago = self._validar_metodo(gasto.metodo_pago if metodo_pago is None else metodo_pago, tarjeta)
         gasto.monto = nuevo_monto
         gasto.dia_mes = nuevo_dia_mes
         self._repo.actualizar(gasto)
         return gasto
+
+    def pendiente_del_mes(self, anio: int, mes: int, moneda, con_debito: bool = False) -> Money:
+        """Lo que falta pagar de los gastos fijos en el mes, en esa moneda. Sin
+        `con_debito` no cuenta los de debito automatico, que ya suman al total
+        a pagar de su tarjeta."""
+        total = Money.zero(moneda)
+        for o in self.proximas_ocurrencias(anio, mes):
+            if o.ya_registrado or o.gasto.monto.moneda != total.moneda:
+                continue
+            if o.gasto.tarjeta_id is not None and not con_debito:
+                continue
+            total = total + o.gasto.monto
+        return total
 
     def eliminar(self, gasto_fijo_id: int) -> None:
         self._repo.eliminar(gasto_fijo_id)
@@ -180,6 +220,7 @@ class GastoFijoService:
             estado=EstadoMovimiento.CONFIRMADO,
             fijo=True,
             gasto_fijo_id=gasto.id,
+            metodo_pago=gasto.metodo_pago,
         )
         movimiento.id = self._movimientos.crear(movimiento)
         return movimiento

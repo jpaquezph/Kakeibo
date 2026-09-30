@@ -4,7 +4,7 @@ from datetime import date
 
 import flet as ft
 
-from ...app.domain.models import TipoMovimiento
+from ...app.domain.models import METODOS_PAGO, TipoMovimiento
 from ...app.domain.money import Money, Moneda
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.gastos_fijos import FiltroGastosFijos, GastoFijoService
@@ -15,6 +15,14 @@ from . import components
 # Filtros y orden elegidos: a nivel de modulo para que se mantengan al
 # cambiar de seccion y volver, mientras la app esta abierta.
 _filtro = FiltroGastosFijos()
+
+# Valor del desplegable "Método de pago" para el debito automatico (no es un
+# metodo guardado: se indica con la tarjeta del gasto).
+_DEBITO = "debito_automatico"
+_METODO_ICONO = {
+    "efectivo": "payments_rounded", "transferencia": "swap_horiz_rounded", "tarjeta_debito": "credit_card_rounded",
+    "billetera": "account_balance_wallet_rounded", "otro": "more_horiz_rounded",
+}
 
 
 def build_gastos_fijos_view(
@@ -31,15 +39,20 @@ def build_gastos_fijos_view(
         cierre = f" (cierra el día {t.dia_cierre})" if t.dia_cierre else ""
         return f"El vencimiento es el de la tarjeta {t.nombre}: vence el día {t.dia_vencimiento} de cada mes{cierre}."
 
-    def _campos_debito(tarjeta_actual: int | None, dia_field: ft.TextField):
-        """Casilla de debito automatico + tarjeta a la que se debita. Con debito
-        automatico el dia de vencimiento no se carga: es el de la tarjeta, y se
-        informa en lugar del campo. Devuelve (controles, funcion que lee la
-        tarjeta elegida o None)."""
+    def _campos_pago(tarjeta_actual: int | None, metodo_actual: str, dia_field: ft.TextField):
+        """Metodo de pago (efectivo, transferencia, ... o debito automatico) y,
+        con debito automatico, la tarjeta a la que se debita. Con debito el dia
+        de vencimiento no se carga: es el de la tarjeta, y se informa en lugar
+        del campo. Devuelve (controles, funcion que lee la tarjeta elegida o
+        None, funcion que lee el metodo de pago)."""
         tarjetas = tarjeta_service.listar_tarjetas()
-        check = ft.Checkbox(
-            label="Se paga con débito automático de tarjeta", value=tarjeta_actual is not None,
-            active_color=theme.MOVIMIENTOS_COLOR, disabled=not tarjetas,
+        metodo_dd = ft.Dropdown(
+            label="Método de pago",
+            value=_DEBITO if tarjeta_actual is not None else metodo_actual,
+            options=[ft.dropdown.Option("", "Sin especificar")]
+                    + [ft.dropdown.Option(k, v) for k, v in METODOS_PAGO.items()]
+                    + ([ft.dropdown.Option(_DEBITO, "Débito automático (tarjeta de crédito)")] if tarjetas else []),
+            filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
         )
         tarjeta_dd = ft.Dropdown(
             label="¿A qué tarjeta se debita?",
@@ -50,8 +63,8 @@ def build_gastos_fijos_view(
         )
         ayuda = ft.Text(
             "Aparece en el resumen de esa tarjeta, pero se cuenta una sola vez: como gasto fijo. "
-            "Para quitarlo, destildá la casilla y cargá el día de vencimiento propio." if tarjetas
-            else "Cargá una tarjeta en la sección Tarjetas para poder usar débito automático.",
+            "Para quitarlo, elegí otro método de pago y cargá el día de vencimiento propio." if tarjetas
+            else "Para usar débito automático, cargá una tarjeta en la sección Tarjetas.",
             size=11, color=theme.TEXT_MUTED, italic=True,
         )
 
@@ -65,8 +78,9 @@ def build_gastos_fijos_view(
         )
 
         def actualizar(_e=None):
-            con_debito = bool(check.value)
+            con_debito = metodo_dd.value == _DEBITO
             tarjeta_dd.visible = con_debito
+            ayuda.visible = con_debito or not tarjetas
             dia_field.visible = not con_debito
             tarjeta = next((t for t in tarjetas if str(t.id) == tarjeta_dd.value), None)
             info_vencimiento.visible = con_debito and tarjeta is not None
@@ -76,10 +90,16 @@ def build_gastos_fijos_view(
             if _e is not None:
                 page.update()
 
-        check.on_change = actualizar
+        metodo_dd.on_select = actualizar
         tarjeta_dd.on_select = actualizar
         actualizar()
-        return [check, tarjeta_dd, info_vencimiento, ayuda], lambda: int(tarjeta_dd.value) if check.value and tarjeta_dd.value else None
+
+        def con_debito() -> bool:
+            return metodo_dd.value == _DEBITO
+
+        return ([metodo_dd, tarjeta_dd, info_vencimiento, ayuda],
+                lambda: int(tarjeta_dd.value) if con_debito() and tarjeta_dd.value else None,
+                lambda: "" if con_debito() else (metodo_dd.value or ""))
 
     def _nombre_tarjeta(tarjeta_id: int) -> str:
         t = tarjeta_service.obtener_tarjeta(tarjeta_id)
@@ -185,6 +205,9 @@ def build_gastos_fijos_view(
                                 on_click=lambda e, gasto=g: dialogo_editar_gasto(gasto),
                                 tooltip="Débito automático. Tocá para cambiarlo o quitarlo",
                             )] if g.tarjeta_id else []),
+                            *([components.category_chip(components.METODOS_PAGO_CORTO.get(g.metodo_pago, METODOS_PAGO[g.metodo_pago]),
+                                                        theme.TEXT_SECONDARY, _METODO_ICONO.get(g.metodo_pago, "payments_rounded"))]
+                              if not g.tarjeta_id and g.metodo_pago in METODOS_PAGO else []),
                         ],
                         spacing=6, wrap=True, run_spacing=6,
                     ),
@@ -196,7 +219,7 @@ def build_gastos_fijos_view(
                                 [
                                     ft.TextButton("Editar", icon=ft.Icons.EDIT_ROUNDED,
                                                   style=ft.ButtonStyle(color=theme.TEXT_SECONDARY, padding=theme.pad(horizontal=8, vertical=4)),
-                                                  tooltip="Cambiar monto, vencimiento o débito automático",
+                                                  tooltip="Cambiar cualquier dato del gasto fijo",
                                                   on_click=lambda e, gasto=g: dialogo_editar_gasto(gasto)),
                                     ft.IconButton(icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_color=theme.EXPENSE_RED, icon_size=18,
                                                   tooltip="Eliminar", on_click=lambda e, gid=g.id: eliminar(gid)),
@@ -244,16 +267,34 @@ def build_gastos_fijos_view(
         page.show_dialog(dialog)
 
     def dialogo_editar_gasto(gasto):
-        monto_f = ft.TextField(label="Nuevo monto", value=str(gasto.monto.amount), filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
-        vencimiento_f = ft.TextField(label="Día de vencimiento (1-28)", value=str(gasto.dia_mes), filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
-        campos_debito, tarjeta_elegida = _campos_debito(gasto.tarjeta_id, vencimiento_f)
+        campo = dict(filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
+        concepto_f = ft.TextField(label="Concepto", value=gasto.concepto, **campo)
+        detalle_f = ft.TextField(label="Detalle (opcional)", value=gasto.detalle, **campo)
+        monto_f = ft.TextField(label="Monto", value=components.monto_editable(gasto.monto), keyboard_type=ft.KeyboardType.NUMBER, **campo)
+        moneda_dd = ft.Dropdown(label="Moneda", value=gasto.monto.moneda.value, options=[ft.dropdown.Option(m.value) for m in Moneda], **campo)
+        vencimiento_f = ft.TextField(label="Día de vencimiento (1-28)", value=str(gasto.dia_mes), keyboard_type=ft.KeyboardType.NUMBER, **campo)
+        # Si su categoria fue quitada (Configuracion), se sigue ofreciendo para no cambiarla sin querer.
+        opciones_cat = list(categorias)
+        if all(c.id != gasto.categoria_id for c in opciones_cat):
+            actual = categoria_repo.obtener(gasto.categoria_id)
+            if actual is not None:
+                opciones_cat.append(actual)
+        categoria_dd = ft.Dropdown(label="Categoría", value=str(gasto.categoria_id),
+                                   options=[ft.dropdown.Option(str(c.id), c.nombre) for c in opciones_cat], **campo)
+        campos_pago, tarjeta_elegida, metodo_elegido = _campos_pago(gasto.tarjeta_id, gasto.metodo_pago, vencimiento_f)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def guardar(_e):
             try:
-                nuevo_monto = components.parse_monto(monto_f.value, gasto.monto.moneda, "Nuevo monto")
+                nuevo_monto = components.parse_monto(monto_f.value, moneda_dd.value, "Monto")
                 nuevo_dia = None if tarjeta_elegida() else components.parse_entero(vencimiento_f.value, "Día de vencimiento", maximo=28)
-                gasto_fijo_service.editar(gasto.id, nuevo_monto, nuevo_dia, tarjeta_id=tarjeta_elegida())
+                if not categoria_dd.value:
+                    raise ValueError("Elegí una categoría")
+                gasto_fijo_service.editar(
+                    gasto.id, nuevo_monto, nuevo_dia, tarjeta_id=tarjeta_elegida(),
+                    concepto=concepto_f.value or "", detalle=detalle_f.value or "",
+                    categoria_id=int(categoria_dd.value), metodo_pago=metodo_elegido(),
+                )
             except (ValueError, ArithmeticError) as exc:
                 error_text.value = str(exc)
                 error_text.visible = True
@@ -269,11 +310,13 @@ def build_gastos_fijos_view(
                 ft.Column(
                     [
                         ft.Text("Los cambios se usan desde el próximo pago que registres. Los pagos ya hechos no se modifican.", size=12, color=theme.TEXT_SECONDARY),
-                        monto_f, vencimiento_f, *campos_debito,
+                        concepto_f, detalle_f,
+                        ft.Row([ft.Container(monto_f, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
+                        categoria_dd, *campos_pago, vencimiento_f,
                     ],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
-                width=360,
+                width=400,
             ),
             actions=[theme.secondary_button("Cancelar", lambda e: page.pop_dialog()), theme.primary_button("Guardar", guardar, color=theme.MOVIMIENTOS_COLOR, icon=ft.Icons.CHECK_ROUNDED)],
         )
@@ -286,14 +329,15 @@ def build_gastos_fijos_view(
         moneda_dd = ft.Dropdown(label="Moneda", value=Moneda.ARS.value, options=[ft.dropdown.Option(m.value) for m in Moneda], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
         dia_f = ft.TextField(label="Día de vencimiento (1-28)", value="1", filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER)
         categoria_dd = ft.Dropdown(label="Categoría", value=str(categorias[0].id) if categorias else None, options=[ft.dropdown.Option(str(c.id), c.nombre) for c in categorias], filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER)
-        campos_debito, tarjeta_elegida = _campos_debito(None, dia_f)
+        campos_pago, tarjeta_elegida, metodo_elegido = _campos_pago(None, "efectivo", dia_f)
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def guardar(_e):
             try:
                 monto = components.parse_monto(monto_f.value, moneda_dd.value)
                 dia_mes = None if tarjeta_elegida() else components.parse_entero(dia_f.value, "Día de vencimiento", maximo=28)
-                gasto_fijo_service.registrar(concepto_f.value or "", detalle_f.value or "", monto, int(categoria_dd.value), dia_mes, tarjeta_elegida())
+                gasto_fijo_service.registrar(concepto_f.value or "", detalle_f.value or "", monto, int(categoria_dd.value), dia_mes,
+                                             tarjeta_elegida(), metodo_pago=metodo_elegido())
             except (ValueError, ArithmeticError) as exc:
                 error_text.value = str(exc)
                 error_text.visible = True
@@ -307,7 +351,8 @@ def build_gastos_fijos_view(
             title=components.titulo_con_error("Nuevo gasto fijo", error_text),
             content=ft.Container(
                 ft.Column(
-                    [concepto_f, detalle_f, ft.Row([ft.Container(monto_f, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8), dia_f, categoria_dd, *campos_debito],
+                    [concepto_f, detalle_f, ft.Row([ft.Container(monto_f, expand=2), ft.Container(moneda_dd, expand=1)], spacing=8),
+                     categoria_dd, *campos_pago, dia_f],
                     spacing=12, tight=True, scroll=ft.ScrollMode.AUTO,
                 ),
                 width=400,

@@ -40,6 +40,7 @@ class MovimientoRepository:
             categoria_nombre=row["categoria_nombre"] if "categoria_nombre" in row.keys() else None,
             categoria_color=row["categoria_color"] if "categoria_color" in row.keys() else None,
             categoria_icono=row["categoria_icono"] if "categoria_icono" in row.keys() else None,
+            metodo_pago=row["metodo_pago"],
         )
 
     _SELECT_CON_CATEGORIA = """
@@ -51,8 +52,9 @@ class MovimientoRepository:
     def crear(self, m: Movimiento) -> int:
         cur = self._conn.execute(
             """INSERT INTO movimientos
-               (tipo, fecha, concepto, detalle, monto_centavos, moneda, categoria_id, estado, fijo, tarjeta_id, gasto_fijo_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (tipo, fecha, concepto, detalle, monto_centavos, moneda, categoria_id, estado, fijo, tarjeta_id, gasto_fijo_id,
+                metodo_pago)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 m.tipo.value,
                 m.fecha.isoformat(),
@@ -65,6 +67,7 @@ class MovimientoRepository:
                 int(m.fijo),
                 m.tarjeta_id,
                 m.gasto_fijo_id,
+                m.metodo_pago,
             ),
         )
         self._conn.commit()
@@ -85,7 +88,7 @@ class MovimientoRepository:
         self._conn.execute(
             """UPDATE movimientos SET
                  tipo = ?, fecha = ?, concepto = ?, detalle = ?, monto_centavos = ?, moneda = ?,
-                 categoria_id = ?, estado = ?, fijo = ?, tarjeta_id = ?, updated_at = datetime('now')
+                 categoria_id = ?, estado = ?, fijo = ?, tarjeta_id = ?, metodo_pago = ?, updated_at = datetime('now')
                WHERE id = ?""",
             (
                 m.tipo.value,
@@ -98,6 +101,7 @@ class MovimientoRepository:
                 m.estado.value,
                 int(m.fijo),
                 m.tarjeta_id,
+                m.metodo_pago,
                 m.id,
             ),
         )

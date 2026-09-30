@@ -9,6 +9,7 @@ sale mas barato. Todo en pesos.
 from __future__ import annotations
 
 import sqlite3
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -17,6 +18,11 @@ from ..domain.models import TipoMovimiento
 from ..domain.money import Money, Moneda
 from .movimientos import MovimientoService
 from .tarjetas import TarjetaService
+
+# Locales por lista: con mas la tabla se vuelve dificil de recorrer y lenta de abrir.
+MAX_LOCALES = 5
+MENSAJE_MAX_LOCALES = (f"Podés tener hasta {MAX_LOCALES} locales por mes. "
+                       "Para agregar otro, eliminá uno (tocá su nombre en la tabla).")
 
 MESES = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -142,6 +148,43 @@ def calcular(lista: ListaCompra) -> ResumenCompra:
     return ResumenCompra(filas, total_por_local, faltantes, total_optimo, plan, sin_precio)
 
 
+# Orden de los productos en la tabla. "Barato"/"caro" usan el mejor precio de
+# cada producto (el total del local mas barato); los que no tienen precio en
+# ningun local van al final.
+ORDENES_PRODUCTOS: dict[str, str] = {
+    "carga": "Como los cargaste",
+    "az": "Nombre (A-Z)",
+    "za": "Nombre (Z-A)",
+    "barato": "Más barato primero",
+    "caro": "Más caro primero",
+    "sin_precio": "Sin precio primero",
+}
+
+
+def _sin_acentos(texto: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", texto.casefold()) if unicodedata.category(c) != "Mn")
+
+
+def coincide_busqueda(nombre: str, busqueda: str) -> bool:
+    """Busqueda de productos: sin distinguir mayusculas ni acentos, y todas
+    las palabras buscadas tienen que aparecer ("leche desc" encuentra
+    "Leche descremada")."""
+    nombre_n = _sin_acentos(nombre)
+    return all(p in nombre_n for p in _sin_acentos(busqueda).split())
+
+
+def ordenar_productos(resumen: ResumenCompra, orden: str) -> list[ProductoCompra]:
+    filas = list(resumen.filas)
+    if orden in ("az", "za"):
+        filas.sort(key=lambda f: _sin_acentos(f.producto.nombre), reverse=orden == "za")
+    elif orden in ("barato", "caro"):
+        con = sorted((f for f in filas if f.mejor_total is not None), key=lambda f: f.mejor_total.cents, reverse=orden == "caro")
+        filas = con + [f for f in filas if f.mejor_total is None]
+    elif orden == "sin_precio":
+        filas = [f for f in filas if f.sin_precio] + [f for f in filas if not f.sin_precio]
+    return [f.producto for f in filas]
+
+
 def _clave_mes(anio: int, mes: int) -> int:
     return anio * 12 + (mes - 1)
 
@@ -240,6 +283,9 @@ class CompraMensualService:
         return nombre
 
     def agregar_local(self, lista_id: int, nombre: str) -> None:
+        cantidad = self._conn.execute("SELECT COUNT(*) FROM compra_locales WHERE lista_id = ?", (lista_id,)).fetchone()[0]
+        if cantidad >= MAX_LOCALES:
+            raise ValueError(MENSAJE_MAX_LOCALES)
         nombre = self._validar_nombre_local(lista_id, nombre)
         self._conn.execute(
             "INSERT INTO compra_locales (lista_id, nombre, orden) VALUES (?, ?, ?)",

@@ -47,6 +47,16 @@ CATEGORIAS_BASE: list[dict] = [
     {"nombre": "Retiro de inversiones", "color": "#5C6BC0", "icono": "savings", "tipo": "ingreso"},
 ]
 
+# Categorias que la app usa por su nombre (compras con tarjeta, compra/venta
+# de dolares, inversiones): no se pueden quitar.
+CATEGORIAS_DEL_SISTEMA = frozenset({
+    "Tarjeta de crédito",
+    "Cambio de moneda (entregado)",
+    "Cambio de moneda (recibido)",
+    "Inversiones",
+    "Retiro de inversiones",
+})
+
 
 @dataclass(slots=True)
 class Usuario:
@@ -64,6 +74,7 @@ class Categoria:
     color: str
     icono: str
     tipo: TipoMovimiento = TipoMovimiento.EGRESO
+    activa: bool = True  # False = quitada: no se ofrece mas, pero lo ya cargado la conserva
 
 
 @dataclass(slots=True)
@@ -82,6 +93,7 @@ class Movimiento:
     categoria_nombre: str | None = None
     categoria_color: str | None = None
     categoria_icono: str | None = None
+    metodo_pago: str = ""  # clave de METODOS_PAGO; "" = sin especificar
 
     def __post_init__(self):
         if not self.concepto.strip():
@@ -100,6 +112,18 @@ class GastoFijo:
     dia_mes: int
     activo: bool = True
     tarjeta_id: int | None = None  # debito automatico en esta tarjeta
+    metodo_pago: str = ""  # clave de METODOS_PAGO; "" = sin especificar. Con debito automatico no se usa
+
+
+# Como se paga un gasto fijo. El debito automatico no esta aca: se indica con
+# la tarjeta del gasto (tarjeta_id), porque ademas suma al resumen de esa tarjeta.
+METODOS_PAGO: dict[str, str] = {
+    "efectivo": "Efectivo",
+    "transferencia": "Transferencia",
+    "tarjeta_debito": "Tarjeta de débito",
+    "billetera": "Billetera virtual (Mercado Pago, etc.)",
+    "otro": "Otro",
+}
 
 
 @dataclass(slots=True)

@@ -106,6 +106,9 @@ class ResumenDashboard:
     prestamos_pendientes_cantidad: int = 0
     prestamos_activos: list[ProximaCuotaPrestamo] = field(default_factory=list)
     pagado_este_mes: list[PagoDelMes] = field(default_factory=list)
+    # Todo lo que falta pagar este mes (gastos fijos, tarjetas y cuotas de
+    # prestamos), por moneda: ARS y USD no se suman.
+    pendiente_del_mes: dict[Moneda, Money] = field(default_factory=dict)
 
 
 @dataclass
@@ -172,8 +175,31 @@ class DashboardService:
         resumen.prestamos_activos = self._proximas_cuotas_prestamos()
 
         resumen.pagado_este_mes = self.pagado_del_mes(hoy.year, hoy.month)
+        resumen.pendiente_del_mes = self._pendiente_del_mes(hoy, resumen.por_tarjeta)
 
         return resumen
+
+    def _pendiente_del_mes(self, hoy: date, por_tarjeta: list[TotalTarjeta]) -> dict[Moneda, Money]:
+        """Lo que falta pagar este mes: gastos fijos sin pagar, lo que vence de
+        las tarjetas (cuotas, compras en 1 pago y debitos automaticos) y las
+        cuotas de prestamos que vencen en el mes. Los debitos automaticos se
+        cuentan una sola vez, dentro de su tarjeta."""
+        mes = f"{hoy.year:04d}-{hoy.month:02d}"
+        gastos_fijos = GastoFijoService(self._conn)
+        totales = {}
+        for moneda in Moneda:
+            total = gastos_fijos.pendiente_del_mes(hoy.year, hoy.month, moneda)
+            for tt in por_tarjeta:
+                if tt.moneda == moneda:
+                    total = total + tt.total_pendiente
+            row = self._conn.execute(
+                """SELECT SUM(cp.monto_centavos) AS total FROM cuotas_prestamo cp
+                   JOIN prestamos p ON p.id = cp.prestamo_id
+                   WHERE cp.pagada = 0 AND p.moneda = ? AND substr(cp.fecha_vencimiento, 1, 7) = ?""",
+                (moneda.value, mes),
+            ).fetchone()
+            totales[moneda] = total + Money(row["total"] or 0, moneda)
+        return totales
 
     def pagado_del_mes(self, anio: int, mes: int) -> list[PagoDelMes]:
         """Gastos fijos, cuotas de tarjeta y cuotas de prestamo pagados en ese mes."""

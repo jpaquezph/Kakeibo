@@ -6,10 +6,12 @@ from typing import Callable
 import flet as ft
 
 from ...app.auth.service import AuthService
+from ...app.repositories.categorias import CategoriaRepository
 from ...app.services import inicio_windows
 from ...app.services.config import ConfigService
 from ...app.services.logs import ruta_log, ultimo_error
 from .. import theme
+from .categorias_config import build_categorias_seccion
 from .usuario_config import build_usuario_seccion
 
 # Secciones desplegadas. Vive a nivel de modulo para que sobreviva a las
@@ -23,6 +25,7 @@ def build_configuracion_view(
     auth: AuthService,
     on_cambiar_tema: Callable[[bool], None],
     on_perfil_cambiado: Callable[[str], None],
+    categoria_repo: CategoriaRepository,
 ) -> ft.Control:
     # config_service queda disponible para las proximas opciones de configuracion.
     return ft.Column(
@@ -34,6 +37,8 @@ def build_configuracion_view(
             _seccion(page, "apariencia", "Apariencia", "palette_outlined", _apariencia(on_cambiar_tema)),
             ft.Container(height=14),
             _seccion(page, "general", "General", "settings_outlined", _general(page)),
+            ft.Container(height=14),
+            _seccion(page, "categorias", "Categorías", "sell_outlined", build_categorias_seccion(page, categoria_repo)),
             ft.Container(height=14),
             _seccion(page, "errores", "Registro de errores", "description_outlined", _registro_errores(page)),
         ],

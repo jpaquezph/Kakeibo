@@ -8,8 +8,12 @@ from pathlib import Path
 import flet as ft
 import flet.canvas as cv
 
+from ...app.domain.models import METODOS_PAGO
 from ...app.domain.money import Money
 from .. import theme
+
+# Nombre corto del metodo de pago para etiquetas chicas.
+METODOS_PAGO_CORTO = {"billetera": "Billetera virtual"}
 
 
 _NUMERO = re.compile(r"\d+([.,]\d+)?")
@@ -162,6 +166,9 @@ def movimiento_row(movimiento, on_edit=None, on_delete=None) -> ft.Container:
                             category_chip(movimiento.categoria_nombre or "", movimiento.categoria_color or theme.TEXT_MUTED, movimiento.categoria_icono or "category"),
                             ft.Text(movimiento.fecha.strftime("%d/%m/%Y"), size=11, color=theme.TEXT_MUTED),
                             ft.Text("Fijo", size=10, color=theme.TEXT_MUTED, italic=True) if movimiento.fijo else ft.Container(),
+                            *([ft.Text(METODOS_PAGO_CORTO.get(movimiento.metodo_pago, METODOS_PAGO[movimiento.metodo_pago]),
+                                       size=10, color=theme.TEXT_MUTED, italic=True)]
+                              if getattr(movimiento, "metodo_pago", "") in METODOS_PAGO else []),
                             ft.Text("Pendiente", size=10, color=theme.HISTORIAL_COLOR, italic=True) if movimiento.estado.value == "pendiente" else ft.Container(),
                         ],
                         spacing=8,

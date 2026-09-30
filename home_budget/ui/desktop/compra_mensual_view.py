@@ -7,6 +7,7 @@ en verde; los productos sin precio en ningun local, en rosa.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from decimal import Decimal
 
@@ -15,14 +16,17 @@ import flet as ft
 from ...app.domain.models import TipoMovimiento
 from ...app.domain.money import Money, Moneda
 from ...app.repositories.categorias import CategoriaRepository
-from ...app.services.compra_mensual import MESES, CompraMensualService, ListaCompra, calcular
+from ...app.services.compra_mensual import (
+    MAX_LOCALES, MENSAJE_MAX_LOCALES, MESES, ORDENES_PRODUCTOS, CompraMensualService, ListaCompra, calcular,
+    coincide_busqueda, ordenar_productos,
+)
 from ...app.services.tarjetas import TarjetaService, vencimiento_cuota
 from .. import theme
 from . import components
 from .inversiones_forms import _CampoFecha, fmt_decimal, parse_decimal
 
-# Mes que se esta viendo: se recuerda al volver a la seccion.
-_estado = {"anio": date.today().year, "mes": date.today().month, "detalle": True}
+# Mes que se esta viendo, orden y busqueda: se recuerdan al volver a la seccion.
+_estado = {"anio": date.today().year, "mes": date.today().month, "detalle": True, "orden": "carga", "busqueda": ""}
 
 ANCHO_PRODUCTO = 170
 ANCHO_CANTIDAD = 70
@@ -37,6 +41,7 @@ ANCHO_FIJO = ANCHO_PRODUCTO + ANCHO_CANTIDAD + ANCHO_ACCION   # columnas que no 
 def _ancho_local(con_detalle: bool) -> int:
     return ANCHO_PRECIO + ANCHO_DESC + ANCHO_TOTAL + (ANCHO_DETALLE if con_detalle else 0)
 ALTO_FILA = 40
+FILAS_PRIMERA_TANDA = 12
 ALTO_LOCAL = 32
 ALTO_COLUMNAS = 30
 ALTO_PIE = 44
@@ -53,12 +58,35 @@ def _celda(control: ft.Control, ancho: int, bg=None, borde_izq: bool = False) ->
     )
 
 
+# Una tabla tiene cientos de casillas y cada propiedad se envia a la ventana:
+# los colores del texto salen del tema (no se repiten en cada casilla).
+_PADDING_CAMPO = ft.padding.Padding(left=2, right=2, top=6, bottom=6)
+
+
+def _lineas_columnas(cantidad_locales: int, con_detalle: bool) -> ft.BoxDecoration:
+    """Lineas verticales finas entre Precio / Desc. / Total / Detalle de cada
+    local, pintadas como una sola decoracion encima del bloque de filas (una
+    linea por casilla serian cientos de controles mas y la seccion tardaria
+    mas en abrir). Es un degradado de franjas que se repite una vez por
+    local. Se pinta encima, asi tambien se ve sobre las casillas en verde."""
+    ancho = _ancho_local(con_detalle)
+    bordes = [ANCHO_PRECIO, ANCHO_PRECIO + ANCHO_DESC] + ([ANCHO_PRECIO + ANCHO_DESC + ANCHO_TOTAL] if con_detalle else [])
+    transparente = ft.Colors.TRANSPARENT
+    colores, paradas = [], []
+    for x in bordes:
+        colores += [transparente, theme.BORDER, theme.BORDER, transparente]
+        paradas += [x / ancho, x / ancho, (x + 1) / ancho, (x + 1) / ancho]
+    total = cantidad_locales * ancho
+    return ft.BoxDecoration(gradient=ft.LinearGradient(
+        begin=ft.Alignment(-1, 0), end=ft.Alignment(-1 + 2 * ancho / total, 0),
+        colors=colores, stops=paradas, tile_mode=ft.GradientTileMode.REPEATED,
+    ))
+
+
 def _campo(valor: str, alinear_derecha: bool = False, hint: str = "") -> ft.TextField:
     return ft.TextField(
-        value=valor, dense=True, text_size=13, border=ft.InputBorder.NONE, hint_text=hint,
-        text_style=ft.TextStyle(color=theme.TEXT_PRIMARY), hint_style=ft.TextStyle(color=theme.TEXT_MUTED),
-        content_padding=ft.padding.Padding(left=2, right=2, top=6, bottom=6),
-        text_align=ft.TextAlign.RIGHT if alinear_derecha else ft.TextAlign.LEFT,
+        value=valor, dense=True, text_size=13, border=ft.InputBorder.NONE, hint_text=hint or None,
+        content_padding=_PADDING_CAMPO, text_align=ft.TextAlign.RIGHT if alinear_derecha else None,
     )
 
 
@@ -80,6 +108,8 @@ def build_compra_mensual_view(
     page: ft.Page, service: CompraMensualService, categoria_repo: CategoriaRepository, tarjeta_service: TarjetaService,
 ) -> ft.Control:
     root = ft.Column(expand=True, spacing=14)
+    # Barrita para mover los locales, fija al pie (la llena _tabla).
+    barra_inferior = ft.Container(visible=False, padding=theme.pad_only(left=13, top=4, right=13, bottom=2))
 
     def avisar(mensaje: str, error: bool = False):
         page.show_dialog(ft.SnackBar(ft.Text(mensaje), bgcolor=theme.EXPENSE_RED if error else None))
@@ -148,6 +178,13 @@ def build_compra_mensual_view(
         ))
 
     def nuevo_local(lista: ListaCompra):
+        if len(lista.locales) >= MAX_LOCALES:
+            page.show_dialog(theme.dialogo(
+                "No se pueden agregar más locales", ft.Text(MENSAJE_MAX_LOCALES, size=13, color=theme.TEXT_SECONDARY),
+                [theme.primary_button("Entendido", lambda e: page.pop_dialog(), color=theme.COMPRAS_COLOR)],
+                icono="storefront_rounded", color=theme.COMPRAS_COLOR, ancho=380,
+            ))
+            return
         dialogo_nombre("Agregar local", "Nombre del local", "", lambda nombre: service.agregar_local(lista.id, nombre),
                        ejemplo="Ej: COTO, Carrefour, PedidosYa")
 
@@ -173,6 +210,7 @@ def build_compra_mensual_view(
     # ---------- tabla ----------
 
     def construir() -> list[ft.Control]:
+        barra_inferior.visible = False  # la muestra _tabla si hay locales para mover
         anio, mes = _estado["anio"], _estado["mes"]
         hoy = date.today()
         es_mes_actual = (anio, mes) == (hoy.year, hoy.month)
@@ -407,8 +445,9 @@ def build_compra_mensual_view(
                 *([_texto_encabezado("Marca / detalle", ANCHO_DETALLE)] if con_detalle else []),
             ]
         der = [ft.Row(encabezado_locales, spacing=0), ft.Row(encabezado_columnas, spacing=0)]
+        filas_producto: dict[int, tuple] = {}  # id -> (fila izq, fila der, producto)
 
-        for producto in lista.productos:
+        for producto in ordenar_productos(calcular(lista), _estado["orden"]):
             nombre_f = _campo(producto.nombre)
             cantidad_f = _campo(fmt_decimal(producto.cantidad), alinear_derecha=True)
 
@@ -428,14 +467,15 @@ def build_compra_mensual_view(
                 f.on_blur = guardar_producto
                 f.on_submit = guardar_producto
             celda_producto = _celda(nombre_f, ANCHO_PRODUCTO)
-            izq.append(ft.Row([
+            fila_izq = ft.Row([
                 celda_producto,
                 _celda(cantidad_f, ANCHO_CANTIDAD),
                 _celda(ft.IconButton(
                     icon=ft.Icons.DELETE_OUTLINE_ROUNDED, icon_size=16, icon_color=theme.TEXT_MUTED, tooltip="Eliminar producto",
                     on_click=lambda e, p=producto: eliminar_producto(p), style=ft.ButtonStyle(padding=0),
                 ), ANCHO_ACCION),
-            ], spacing=0))
+            ], spacing=0)
+            izq.append(fila_izq)
 
             controles, celdas_local = [], {}
             for local in lista.locales:
@@ -459,13 +499,37 @@ def build_compra_mensual_view(
                 for f in (precio_f, desc_f, detalle_f):
                     f.on_blur = guardar_celda
                     f.on_submit = guardar_celda
+                # Un solo recuadro por local (antes uno por casilla): la tabla
+                # tiene cientos de casillas y cada control se envia a la ventana.
                 # Con el detalle oculto el campo igual existe (con su valor) para no borrarlo al guardar.
-                celdas = (_celda(precio_f, ANCHO_PRECIO, borde_izq=True), _celda(desc_f, ANCHO_DESC),
-                          _celda(total_t, ANCHO_TOTAL), *([_celda(detalle_f, ANCHO_DETALLE)] if con_detalle else []))
-                celdas_local[local.id] = (total_t, celdas)
-                controles += celdas
+                precio_f.width, desc_f.width, detalle_f.width = ANCHO_PRECIO - 12, ANCHO_DESC - 12, ANCHO_DETALLE - 12
+                grupo = ft.Container(
+                    ft.Row([precio_f, desc_f, total_t, *([detalle_f] if con_detalle else [])], spacing=12),
+                    width=ancho_local, height=ALTO_FILA, padding=theme.pad(horizontal=6),
+                    border=ft.border.Border(left=ft.border.BorderSide(2, theme.BORDER), bottom=ft.border.BorderSide(1, theme.BORDER)),
+                )
+                celdas_local[local.id] = (total_t, (grupo,))
+                controles.append(grupo)
             refs["filas"][producto.id] = (celda_producto, celdas_local)
-            der.append(ft.Row(controles, spacing=0))
+            fila_der = ft.Row(controles, spacing=0)
+            der.append(fila_der)
+            filas_producto[producto.id] = (fila_izq, fila_der, producto)
+
+        # Carga en dos tandas: primero las filas que entran en pantalla y, un
+        # instante despues, el resto. Lo que demora es enviar a la ventana los
+        # cientos de casillas; asi la tabla aparece enseguida.
+        inicio_filas = 2  # antes: las dos filas de encabezado
+        resto_izq = izq[inicio_filas + FILAS_PRIMERA_TANDA:]
+        del izq[inicio_filas + FILAS_PRIMERA_TANDA:]
+        # Las filas de productos de los locales van en su propio bloque, que
+        # lleva pintadas encima las lineas entre columnas (ver _lineas_columnas).
+        filas_der = der[inicio_filas:]
+        resto_der = filas_der[FILAS_PRIMERA_TANDA:]
+        bloque_filas = ft.Column(filas_der[:FILAS_PRIMERA_TANDA], spacing=0)
+        der[inicio_filas:] = [ft.Container(
+            bloque_filas, width=len(lista.locales) * ancho_local,
+            foreground_decoration=_lineas_columnas(len(lista.locales), con_detalle) if lista.locales else None,
+        )] if filas_der else []
 
         # Pie: total por local y como se reparte la compra mas barata
         def fila_pie(titulo: str, clave: str, destacar: bool = False):
@@ -499,41 +563,132 @@ def build_compra_mensual_view(
         sin_precio_t = ft.Text("", size=12, color=theme.EXPENSE_RED)
         refs["resumen"] = (total_optimo_t, ahorro_t, sin_precio_t)
 
-        # Los locales se desplazan de costado: barra siempre visible y flechas arriba.
-        # El espacio al final deja la barra debajo de la ultima fila, sin taparla.
-        izq.append(ft.Container(height=16))
-        der.append(ft.Container(height=16))
-        desplazable = ft.Row([ft.Column(der, spacing=0)], scroll=ft.ScrollMode.ALWAYS)
+        izq.append(ft.Container(height=8))
+        der.append(ft.Container(height=8))
+        columna_izq = ft.Column(izq, spacing=0)
+        # Los locales se desplazan de costado, pero sin barra propia: la tabla
+        # la mueve una sola barra fija abajo de la seccion (ver barra_inferior),
+        # que esta a la vista aunque se este en el medio de una lista larga.
+        columna_der = ft.Column(der, spacing=0)
+        desplazable = ft.Row([columna_der], scroll=ft.ScrollMode.HIDDEN)
 
-        async def mover_locales(delta: int):
-            await desplazable.scroll_to(delta=delta * ancho_local, duration=250)
+        # Barrita fija abajo de la seccion (como la de subir y bajar). Mueve la
+        # tabla en un solo sentido: nunca al reves, porque dos barras que se
+        # movian una a la otra rebotaban el movimiento hasta trabar la app.
+        # El aviso de la barra solo anota a donde ir; una sola tarea mueve la
+        # tabla hasta la ultima posicion pedida, asi arrastrar no acumula
+        # decenas de movimientos pendientes.
+        ancho_locales = len(lista.locales) * ancho_local
+        medidas = {"visible": 0.0}
+        movimiento = {"objetivo": None, "tarea": False}
+
+        async def _mover_tabla():
+            try:
+                while movimiento["objetivo"] is not None:
+                    destino, movimiento["objetivo"] = movimiento["objetivo"], None
+                    await desplazable.scroll_to(offset=destino)
+            except Exception:
+                pass  # la tabla se reconstruyo mientras tanto
+            finally:
+                movimiento["tarea"] = False
+
+        def al_mover_barra(e: ft.OnScrollEvent):
+            maximo_tabla = max(0.0, ancho_locales - medidas["visible"])
+            maximo_barra = e.max_scroll_extent or 0
+            movimiento["objetivo"] = e.pixels / maximo_barra * maximo_tabla if maximo_barra > 0 else 0
+            if not movimiento["tarea"]:
+                movimiento["tarea"] = True
+                page.run_task(_mover_tabla)
+
+        def al_medir(e):
+            medidas["visible"] = e.width
+
+        contenedor_locales = ft.Container(desplazable, expand=True, on_size_change=al_medir)
+        barra_locales = ft.Row([ft.Container(width=ancho_locales, height=10)], scroll=ft.ScrollMode.ALWAYS,
+                               scroll_interval=30, on_scroll=al_mover_barra)
 
         def alternar_detalle(e):
             _estado["detalle"] = bool(e.control.value)
             reconstruir()
 
+        # ---------- buscar y ordenar productos ----------
+        def aplicar_busqueda():
+            texto = _estado["busqueda"]
+            mostrados = 0
+            for fila_izq, fila_der, producto in filas_producto.values():
+                visible = coincide_busqueda(producto.nombre, texto)  # si se renombra, ya tiene el nombre nuevo
+                fila_izq.visible = fila_der.visible = visible
+                mostrados += visible
+            contador.value = f"{mostrados} de {len(filas_producto)}" if texto.strip() else ""
+            sin_resultados.visible = bool(filas_producto) and mostrados == 0
+
+        def al_buscar(e):
+            _estado["busqueda"] = e.control.value or ""
+            aplicar_busqueda()
+            page.update()
+
+        def limpiar_busqueda(_e):
+            buscador.value = _estado["busqueda"] = ""
+            aplicar_busqueda()
+            page.update()
+
+        def al_ordenar(e):
+            _estado["orden"] = e.control.value
+            reconstruir()
+
+        buscador = ft.TextField(
+            value=_estado["busqueda"], hint_text="Buscar producto", dense=True, width=220,
+            prefix_icon=ft.Icons.SEARCH_ROUNDED, on_change=al_buscar,
+            suffix=ft.IconButton(icon=ft.Icons.CLOSE_ROUNDED, icon_size=16, tooltip="Borrar búsqueda", on_click=limpiar_busqueda,
+                                 style=ft.ButtonStyle(padding=0)),
+            border_radius=theme.RADIUS_SM, border_color=theme.BORDER, content_padding=components.PADDING_FILTRO,
+            text_size=13,
+        )
+        contador = ft.Text("", size=12, color=theme.TEXT_SECONDARY)
+        orden_dd = ft.Dropdown(
+            label="Ordenar por", value=_estado["orden"], width=225, on_select=al_ordenar,
+            options=[ft.dropdown.Option(k, v) for k, v in ORDENES_PRODUCTOS.items()],
+            border=ft.InputBorder.NONE, content_padding=components.PADDING_FILTRO,
+        )
+        sin_resultados = ft.Text("Ningún producto coincide con la búsqueda.", size=12, color=theme.TEXT_MUTED, italic=True, visible=False)
+
         barra = ft.Row(
             [
+                buscador, contador, components.recuadro_filtro(orden_dd),
                 ft.Switch(label="Mostrar marca / detalle", value=con_detalle, active_color=theme.COMPRAS_COLOR,
                           label_text_style=ft.TextStyle(size=12, color=theme.TEXT_SECONDARY), on_change=alternar_detalle),
-                ft.Container(expand=True),
-                *([
-                    ft.Text("Locales", size=12, color=theme.TEXT_SECONDARY),
-                    ft.IconButton(icon=ft.Icons.CHEVRON_LEFT_ROUNDED, tooltip="Ver locales anteriores", icon_size=20,
-                                  on_click=lambda e: mover_locales(-1)),
-                    ft.IconButton(icon=ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip="Ver más locales", icon_size=20,
-                                  on_click=lambda e: mover_locales(1)),
-                ] if len(lista.locales) > 1 else []),
             ],
-            spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            # Ojo: en una fila con wrap no puede ir nada con expand (Flet la
+            # dibuja como un recuadro gris y se pierde toda la tabla).
+            spacing=10, wrap=True, run_spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
+        # Mismo ancho visible que la parte de los locales: a la izquierda, lo que
+        # ocupan Producto / Cantidad.
+        barra_inferior.content = ft.Row([ft.Container(width=ANCHO_FIJO), ft.Container(barra_locales, expand=True)], spacing=0)
+        barra_inferior.visible = len(lista.locales) > 1
         planilla = ft.Column([
             barra,
             ft.Row(
-                [ft.Column(izq, spacing=0), ft.Container(desplazable, expand=True)],
+                [columna_izq, contenedor_locales],
                 spacing=0, vertical_alignment=ft.CrossAxisAlignment.START,
             ),
+            sin_resultados,
         ], spacing=6)
+        aplicar_busqueda()
+
+        async def cargar_resto():
+            await asyncio.sleep(0.05)  # que primero se vea la primera tanda
+            try:
+                posicion = inicio_filas + FILAS_PRIMERA_TANDA
+                columna_izq.controls[posicion:posicion] = resto_izq
+                bloque_filas.controls.extend(resto_der)
+                columna_izq.update()
+                bloque_filas.update()
+            except Exception:
+                pass  # la tabla ya se reemplazo (cambio de mes, de orden, de seccion)
+
+        if resto_izq:
+            page.run_task(cargar_resto)
 
         def aplicar(r):
             """Vuelca un ResumenCompra en los controles: totales, verdes y rosas."""
@@ -626,4 +781,6 @@ def build_compra_mensual_view(
         return ft.Column([theme.card(planilla, padding=12), *([resumen, registrar] if con_totales else [])], spacing=14)
 
     root.controls = construir()
-    return ft.Column([root], expand=True, scroll=ft.ScrollMode.AUTO)
+    # La lista se desplaza hacia arriba y abajo; la barra de locales queda fija
+    # debajo, siempre a la vista.
+    return ft.Column([ft.Column([root], expand=True, scroll=ft.ScrollMode.AUTO), barra_inferior], expand=True, spacing=0)

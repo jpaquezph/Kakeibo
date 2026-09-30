@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS categorias (
     nombre TEXT NOT NULL UNIQUE,
     color TEXT NOT NULL,
     icono TEXT NOT NULL,
-    tipo TEXT NOT NULL DEFAULT 'egreso' CHECK (tipo IN ('ingreso', 'egreso'))
+    tipo TEXT NOT NULL DEFAULT 'egreso' CHECK (tipo IN ('ingreso', 'egreso')),
+    activa INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS tarjetas (
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS movimientos (
     fijo INTEGER NOT NULL DEFAULT 0,
     tarjeta_id INTEGER REFERENCES tarjetas(id),
     gasto_fijo_id INTEGER REFERENCES gastos_fijos(id),
+    metodo_pago TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -74,7 +76,8 @@ CREATE TABLE IF NOT EXISTS gastos_fijos (
     categoria_id INTEGER NOT NULL REFERENCES categorias(id),
     dia_mes INTEGER NOT NULL CHECK (dia_mes BETWEEN 1 AND 28),
     activo INTEGER NOT NULL DEFAULT 1,
-    tarjeta_id INTEGER REFERENCES tarjetas(id)
+    tarjeta_id INTEGER REFERENCES tarjetas(id),
+    metodo_pago TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS compras (

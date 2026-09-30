@@ -148,7 +148,7 @@ def build_app_shell(page: ft.Page, conn, auth: AuthService, on_logout, mostrar_a
         if seccion == "historial":
             return build_historial_view(page, movimiento_service, categoria_repo)
         if seccion == "configuracion":
-            return build_configuracion_view(page, config_service, auth, cambiar_tema, perfil_cambiado)
+            return build_configuracion_view(page, config_service, auth, cambiar_tema, perfil_cambiado, categoria_repo)
         return build_dashboard_view(page, dashboard_service, cambio_service)
 
     def cambiar_seccion(key: str):

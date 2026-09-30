@@ -58,6 +58,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_usuario_perfil_columnas(conn)
     _ensure_movimiento_gasto_fijo_column(conn)
     _ensure_gasto_fijo_tarjeta_column(conn)
+    _ensure_gasto_fijo_metodo_pago_column(conn)
+    _ensure_categoria_activa_column(conn)
+    _ensure_movimiento_metodo_pago_column(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -226,7 +229,33 @@ def _ensure_gasto_fijo_tarjeta_column(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE gastos_fijos ADD COLUMN tarjeta_id INTEGER REFERENCES tarjetas(id)")
 
 
+def _ensure_gasto_fijo_metodo_pago_column(conn: sqlite3.Connection) -> None:
+    """Agrega 'metodo_pago' a gastos_fijos (efectivo, transferencia, etc.).
+    Los gastos ya cargados quedan "sin especificar"."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(gastos_fijos)")}
+    if "metodo_pago" not in columnas:
+        conn.execute("ALTER TABLE gastos_fijos ADD COLUMN metodo_pago TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_categoria_activa_column(conn: sqlite3.Connection) -> None:
+    """Agrega 'activa' a categorias. Una categoria quitada no se borra (los
+    movimientos, compras y gastos fijos ya cargados la siguen mostrando):
+    queda con activa = 0 y deja de ofrecerse en los formularios."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(categorias)")}
+    if "activa" not in columnas:
+        conn.execute("ALTER TABLE categorias ADD COLUMN activa INTEGER NOT NULL DEFAULT 1")
+
+
+def _ensure_movimiento_metodo_pago_column(conn: sqlite3.Connection) -> None:
+    """Agrega 'metodo_pago' a movimientos (efectivo, transferencia, etc.).
+    Los movimientos ya cargados quedan "sin especificar"."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(movimientos)")}
+    if "metodo_pago" not in columnas:
+        conn.execute("ALTER TABLE movimientos ADD COLUMN metodo_pago TEXT NOT NULL DEFAULT ''")
+
+
 def _seed_categorias(conn: sqlite3.Connection) -> None:
+    # Una categoria base quitada sigue existiendo (inactiva): no se vuelve a crear.
     existentes = {row["nombre"] for row in conn.execute("SELECT nombre FROM categorias")}
     for cat in CATEGORIAS_BASE:
         if cat["nombre"] not in existentes:

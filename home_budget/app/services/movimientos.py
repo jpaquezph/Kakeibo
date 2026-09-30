@@ -3,9 +3,15 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from ..domain.models import EstadoMovimiento, Movimiento, TipoMovimiento
+from ..domain.models import METODOS_PAGO, EstadoMovimiento, Movimiento, TipoMovimiento
 from ..domain.money import Money, Moneda
 from ..repositories.movimientos import FiltroMovimientos, MovimientoRepository
+
+
+def _validar_metodo(metodo_pago: str) -> None:
+    # Sin "tarjeta de credito": esas compras se cargan en la seccion Tarjetas.
+    if metodo_pago and metodo_pago not in METODOS_PAGO:
+        raise ValueError("Método de pago inválido")
 
 
 class MovimientoService:
@@ -23,7 +29,9 @@ class MovimientoService:
         estado: EstadoMovimiento = EstadoMovimiento.CONFIRMADO,
         fijo: bool = False,
         tarjeta_id: int | None = None,
+        metodo_pago: str = "",
     ) -> Movimiento:
+        _validar_metodo(metodo_pago)
         movimiento = Movimiento(
             id=None,
             tipo=tipo,
@@ -35,11 +43,13 @@ class MovimientoService:
             estado=estado,
             fijo=fijo,
             tarjeta_id=tarjeta_id,
+            metodo_pago=metodo_pago,
         )
         movimiento.id = self._repo.crear(movimiento)
         return movimiento
 
     def editar(self, movimiento: Movimiento) -> None:
+        _validar_metodo(movimiento.metodo_pago)
         self._repo.actualizar(movimiento)
 
     def eliminar(self, movimiento_id: int) -> None:
