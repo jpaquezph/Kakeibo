@@ -61,6 +61,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_gasto_fijo_metodo_pago_column(conn)
     _ensure_categoria_activa_column(conn)
     _ensure_movimiento_metodo_pago_column(conn)
+    _ensure_compra_lista_estado_columnas(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -252,6 +253,24 @@ def _ensure_movimiento_metodo_pago_column(conn: sqlite3.Connection) -> None:
     columnas = {row["name"] for row in conn.execute("PRAGMA table_info(movimientos)")}
     if "metodo_pago" not in columnas:
         conn.execute("ALTER TABLE movimientos ADD COLUMN metodo_pago TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_compra_lista_estado_columnas(conn: sqlite3.Connection) -> None:
+    """Estado de cada compra mensual (abierta / cerrada) y el resumen que se
+    guarda al cerrarla. Una compra cerrada no se borra: se muestra solo su
+    resumen y el detalle se carga al pedirlo. Las listas ya cargadas quedan abiertas."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(compra_listas)")}
+    nuevas = {
+        "estado": "TEXT NOT NULL DEFAULT 'abierta' CHECK (estado IN ('abierta', 'cerrada'))",
+        "cerrada_at": "TEXT",
+        "total_optimo_centavos": "INTEGER",
+        "total_registrado_centavos": "INTEGER",
+        "cantidad_productos": "INTEGER",
+        "cantidad_locales": "INTEGER",
+    }
+    for nombre, tipo in nuevas.items():
+        if nombre not in columnas:
+            conn.execute(f"ALTER TABLE compra_listas ADD COLUMN {nombre} {tipo}")
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

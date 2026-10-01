@@ -8,7 +8,7 @@
 ;   "C:\Users\<usuario>\AppData\Local\Programs\Inno Setup 6\ISCC.exe" packaging\kakeibo.iss
 
 #define MyAppName "Kakeibo"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Kakeibo"
 #define MyAppExeName "Kakeibo.exe"
 

@@ -80,6 +80,33 @@ class RegistroCompra:
     descripcion: str
 
 
+@dataclass
+class InfoLista:
+    """Datos livianos de una lista (sin productos ni precios): para mostrar
+    una compra cerrada como resumen y para elegir de que mes copiar."""
+    id: int
+    anio: int
+    mes: int
+    cerrada: bool
+    cantidad_productos: int
+    cantidad_locales: int
+    cerrada_at: date | None = None
+    total_optimo: Money | None = None      # guardados al cerrar
+    total_registrado: Money | None = None
+
+    @property
+    def titulo(self) -> str:
+        return f"{MESES[self.mes - 1]} {self.anio}"
+
+    @property
+    def total(self) -> Money | None:
+        """Lo registrado en las cuentas si se registro algo; si no, el total
+        comprando lo mas barato de cada local."""
+        if self.total_registrado is not None and self.total_registrado.cents > 0:
+            return self.total_registrado
+        return self.total_optimo
+
+
 def total_celda(cantidad: Decimal, celda: PrecioCompra) -> Money | None:
     """Precio unitario x cantidad, menos el descuento. None si no hay precio."""
     if celda.precio is None:
@@ -267,6 +294,139 @@ class CompraMensualService:
     def obtener_o_crear(self, anio: int, mes: int) -> ListaCompra:
         return self.lista_del_mes(anio, mes) or self.crear_lista(anio, mes)
 
+    # --- resumen liviano, cierre y reapertura ---
+
+    _SQL_INFO = """
+        SELECT l.*,
+               (SELECT COUNT(*) FROM compra_productos WHERE lista_id = l.id) AS n_productos,
+               (SELECT COUNT(*) FROM compra_locales WHERE lista_id = l.id) AS n_locales
+        FROM compra_listas l"""
+
+    @staticmethod
+    def _info(r: sqlite3.Row) -> InfoLista:
+        cerrada = r["estado"] == "cerrada"
+        centavos = lambda c: Money(c, Moneda.ARS) if c is not None else None  # noqa: E731
+        return InfoLista(
+            r["id"], r["anio"], r["mes"], cerrada,
+            # Cerrada: lo que tenia al cerrarla (queda como resumen historico).
+            r["cantidad_productos"] if cerrada and r["cantidad_productos"] is not None else r["n_productos"],
+            r["cantidad_locales"] if cerrada and r["cantidad_locales"] is not None else r["n_locales"],
+            date.fromisoformat(r["cerrada_at"][:10]) if cerrada and r["cerrada_at"] else None,
+            centavos(r["total_optimo_centavos"]) if cerrada else None,
+            centavos(r["total_registrado_centavos"]) if cerrada else None,
+        )
+
+    def info_del_mes(self, anio: int, mes: int) -> InfoLista | None:
+        r = self._conn.execute(self._SQL_INFO + " WHERE l.anio = ? AND l.mes = ?", (anio, mes)).fetchone()
+        return self._info(r) if r else None
+
+    def listas(self, solo_cerradas: bool = False) -> list[InfoLista]:
+        """Todas las listas (o solo las cerradas), de la mas nueva a la mas vieja, sin cargar su detalle."""
+        filtro = " WHERE l.estado = 'cerrada'" if solo_cerradas else ""
+        return [self._info(r) for r in self._conn.execute(self._SQL_INFO + filtro + " ORDER BY l.anio DESC, l.mes DESC")]
+
+    def esta_cerrada(self, lista_id: int) -> bool:
+        r = self._conn.execute("SELECT estado FROM compra_listas WHERE id = ?", (lista_id,)).fetchone()
+        return r is not None and r["estado"] == "cerrada"
+
+    def _verificar_abierta(self, lista_id: int) -> None:
+        if self.esta_cerrada(lista_id):
+            raise ValueError("Esta compra mensual está cerrada. Reabrila para modificarla.")
+
+    def _lista_de(self, tabla: str, id_: int) -> int:
+        r = self._conn.execute(f"SELECT lista_id FROM {tabla} WHERE id = ?", (id_,)).fetchone()
+        if r is None:
+            raise ValueError("Ese dato ya no existe")
+        return r["lista_id"]
+
+    def cerrar_lista(self, lista_id: int, hoy: date | None = None) -> InfoLista:
+        """Cierra la compra: guarda su resumen (totales y cantidades) para
+        mostrarla sin cargar la tabla. El detalle queda guardado para
+        consultarlo o reabrirla."""
+        self._verificar_abierta(lista_id)
+        lista = self._cargar(lista_id)
+        resumen = calcular(lista)
+        registrado = sum(r.monto.cents for r in self.registros(lista_id))
+        self._conn.execute(
+            """UPDATE compra_listas SET estado = 'cerrada', cerrada_at = ?, total_optimo_centavos = ?,
+                 total_registrado_centavos = ?, cantidad_productos = ?, cantidad_locales = ? WHERE id = ?""",
+            ((hoy or date.today()).isoformat(), resumen.total_optimo.cents, registrado,
+             len(lista.productos), len(lista.locales), lista_id),
+        )
+        self._conn.commit()
+        return self.info_del_mes(lista.anio, lista.mes)
+
+    def reabrir_lista(self, lista_id: int) -> None:
+        """Vuelve a abrir la compra con sus datos de siempre (no se copia nada).
+        El resumen se vuelve a calcular la proxima vez que se cierre."""
+        self._conn.execute(
+            """UPDATE compra_listas SET estado = 'abierta', cerrada_at = NULL, total_optimo_centavos = NULL,
+                 total_registrado_centavos = NULL, cantidad_productos = NULL, cantidad_locales = NULL WHERE id = ?""",
+            (lista_id,),
+        )
+        self._conn.commit()
+
+    def detalle(self, lista_id: int) -> ListaCompra:
+        """Detalle completo de una lista (por ejemplo, una cerrada para consultarla)."""
+        return self._cargar(lista_id)
+
+    # --- copiar de otro mes ---
+
+    def copiar_de(self, lista_id: int, origen_id: int, locales: bool = True, productos: bool = True) -> tuple[int, int]:
+        """Copia a la lista los locales y/o productos (con cantidades) de otra.
+        No copia precios ni descuentos; si el producto y el local quedan en las
+        dos listas, copia el detalle (marca) a las casillas que aca no tienen nada cargado.
+        Lo que ya esta (mismo nombre, sin importar mayusculas) no se duplica y
+        se respeta el maximo de locales. Devuelve (locales, productos) copiados."""
+        self._verificar_abierta(lista_id)
+        if lista_id == origen_id:
+            raise ValueError("Elegí otro mes para copiar")
+        if not (locales or productos):
+            raise ValueError("Elegí qué querés copiar")
+        origen, destino = self._cargar(origen_id), self._cargar(lista_id)
+        clave = lambda nombre: nombre.strip().lower()  # noqa: E731
+        copiados_l = copiados_p = 0
+        if locales:
+            existentes = {clave(l.nombre) for l in destino.locales}
+            orden = self._siguiente_orden("compra_locales", lista_id)
+            for l in origen.locales:
+                if clave(l.nombre) in existentes:
+                    continue
+                if len(existentes) >= MAX_LOCALES:
+                    break
+                self._conn.execute("INSERT INTO compra_locales (lista_id, nombre, orden) VALUES (?, ?, ?)",
+                                   (lista_id, l.nombre, orden))
+                existentes.add(clave(l.nombre))
+                orden += 1
+                copiados_l += 1
+        if productos:
+            existentes = {clave(p.nombre) for p in destino.productos}
+            orden = self._siguiente_orden("compra_productos", lista_id)
+            for p in origen.productos:
+                if clave(p.nombre) in existentes:
+                    continue
+                self._conn.execute("INSERT INTO compra_productos (lista_id, nombre, cantidad, orden) VALUES (?, ?, ?, ?)",
+                                   (lista_id, p.nombre, str(p.cantidad), orden))
+                existentes.add(clave(p.nombre))
+                orden += 1
+                copiados_p += 1
+        # Detalles (marca, tamaño) de las casillas que coinciden por nombre.
+        locales_dest = {clave(r["nombre"]): r["id"] for r in self._conn.execute(
+            "SELECT id, nombre FROM compra_locales WHERE lista_id = ?", (lista_id,))}
+        productos_dest = {clave(r["nombre"]): r["id"] for r in self._conn.execute(
+            "SELECT id, nombre FROM compra_productos WHERE lista_id = ?", (lista_id,))}
+        for p in origen.productos:
+            for l in origen.locales:
+                detalle = origen.precio(p.id, l.id).detalle
+                pid, lid = productos_dest.get(clave(p.nombre)), locales_dest.get(clave(l.nombre))
+                if detalle and pid and lid:
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO compra_precios (producto_id, local_id, detalle) VALUES (?, ?, ?)",
+                        (pid, lid, detalle),
+                    )
+        self._conn.commit()
+        return copiados_l, copiados_p
+
     # --- locales ---
 
     def _siguiente_orden(self, tabla: str, lista_id: int) -> int:
@@ -283,6 +443,7 @@ class CompraMensualService:
         return nombre
 
     def agregar_local(self, lista_id: int, nombre: str) -> None:
+        self._verificar_abierta(lista_id)
         cantidad = self._conn.execute("SELECT COUNT(*) FROM compra_locales WHERE lista_id = ?", (lista_id,)).fetchone()[0]
         if cantidad >= MAX_LOCALES:
             raise ValueError(MENSAJE_MAX_LOCALES)
@@ -294,12 +455,14 @@ class CompraMensualService:
         self._conn.commit()
 
     def renombrar_local(self, local_id: int, nombre: str) -> None:
-        lista_id = self._conn.execute("SELECT lista_id FROM compra_locales WHERE id = ?", (local_id,)).fetchone()["lista_id"]
+        lista_id = self._lista_de("compra_locales", local_id)
+        self._verificar_abierta(lista_id)
         nombre = self._validar_nombre_local(lista_id, nombre, excepto=local_id)
         self._conn.execute("UPDATE compra_locales SET nombre = ? WHERE id = ?", (nombre, local_id))
         self._conn.commit()
 
     def eliminar_local(self, local_id: int) -> None:
+        self._verificar_abierta(self._lista_de("compra_locales", local_id))
         self._conn.execute("DELETE FROM compra_locales WHERE id = ?", (local_id,))  # sus precios caen en cascada
         self._conn.commit()
 
@@ -315,6 +478,7 @@ class CompraMensualService:
         return nombre
 
     def agregar_producto(self, lista_id: int, nombre: str, cantidad: Decimal) -> None:
+        self._verificar_abierta(lista_id)
         nombre = self._validar_producto(nombre, cantidad)
         self._conn.execute(
             "INSERT INTO compra_productos (lista_id, nombre, cantidad, orden) VALUES (?, ?, ?, ?)",
@@ -323,17 +487,20 @@ class CompraMensualService:
         self._conn.commit()
 
     def editar_producto(self, producto_id: int, nombre: str, cantidad: Decimal) -> None:
+        self._verificar_abierta(self._lista_de("compra_productos", producto_id))
         nombre = self._validar_producto(nombre, cantidad)
         self._conn.execute("UPDATE compra_productos SET nombre = ?, cantidad = ? WHERE id = ?", (nombre, str(cantidad), producto_id))
         self._conn.commit()
 
     def eliminar_producto(self, producto_id: int) -> None:
+        self._verificar_abierta(self._lista_de("compra_productos", producto_id))
         self._conn.execute("DELETE FROM compra_productos WHERE id = ?", (producto_id,))
         self._conn.commit()
 
     # --- precios ---
 
     def guardar_precio(self, producto_id: int, local_id: int, precio: Money | None, descuento: Decimal | None, detalle: str) -> None:
+        self._verificar_abierta(self._lista_de("compra_productos", producto_id))
         if precio is not None and precio.cents < 0:
             raise ValueError("El precio no puede ser negativo")
         if descuento is not None and not (0 <= descuento <= 100):
@@ -369,6 +536,7 @@ class CompraMensualService:
 
     def registrar_egreso(self, lista_id: int, fecha: date, concepto: str, monto: Money, categoria_id: int, descripcion: str) -> None:
         """Registra la compra como un egreso (efectivo, debito, transferencia)."""
+        self._verificar_abierta(lista_id)
         concepto = self._validar_registro(monto, concepto)
         mov = self._movimientos.registrar(TipoMovimiento.EGRESO, fecha, concepto, "Compra mensual", monto, categoria_id)
         self._guardar_registro(lista_id, "egreso", mov.id, monto, fecha, descripcion)
@@ -378,6 +546,7 @@ class CompraMensualService:
         cuotas: int = 1, tarjeta_cerrada: bool = False,
     ) -> None:
         """Registra la compra en una tarjeta de credito (en pesos), en 1 pago o en cuotas."""
+        self._verificar_abierta(lista_id)
         concepto = self._validar_registro(monto, concepto)
         tarjeta = self._tarjetas.obtener_tarjeta(tarjeta_id)
         if tarjeta is None:
@@ -399,9 +568,10 @@ class CompraMensualService:
 
     def deshacer_registro(self, registro_id: int) -> None:
         """Borra el registro y el egreso o la compra de tarjeta que genero."""
-        r = self._conn.execute("SELECT tipo, referencia_id FROM compra_registros WHERE id = ?", (registro_id,)).fetchone()
+        r = self._conn.execute("SELECT lista_id, tipo, referencia_id FROM compra_registros WHERE id = ?", (registro_id,)).fetchone()
         if r is None:
             return
+        self._verificar_abierta(r["lista_id"])
         if r["tipo"] == "egreso":
             if self._movimientos.obtener(r["referencia_id"]) is not None:
                 self._movimientos.eliminar(r["referencia_id"])

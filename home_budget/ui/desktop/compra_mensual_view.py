@@ -17,7 +17,7 @@ from ...app.domain.models import TipoMovimiento
 from ...app.domain.money import Money, Moneda
 from ...app.repositories.categorias import CategoriaRepository
 from ...app.services.compra_mensual import (
-    MAX_LOCALES, MENSAJE_MAX_LOCALES, MESES, ORDENES_PRODUCTOS, CompraMensualService, ListaCompra, calcular,
+    MAX_LOCALES, MENSAJE_MAX_LOCALES, MESES, ORDENES_PRODUCTOS, CompraMensualService, InfoLista, ListaCompra, calcular,
     coincide_busqueda, ordenar_productos,
 )
 from ...app.services.tarjetas import TarjetaService, vencimiento_cuota
@@ -26,7 +26,9 @@ from . import components
 from .inversiones_forms import _CampoFecha, fmt_decimal, parse_decimal
 
 # Mes que se esta viendo, orden y busqueda: se recuerdan al volver a la seccion.
-_estado = {"anio": date.today().year, "mes": date.today().month, "detalle": True, "orden": "carga", "busqueda": ""}
+# ver_detalle: id de la compra cerrada cuyo detalle se esta consultando.
+_estado = {"anio": date.today().year, "mes": date.today().month, "detalle": True, "orden": "carga", "busqueda": "",
+           "ver_detalle": None}
 
 ANCHO_PRODUCTO = 170
 ANCHO_CANTIDAD = 70
@@ -117,10 +119,12 @@ def build_compra_mensual_view(
     def mover_mes(delta: int):
         total = _estado["anio"] * 12 + (_estado["mes"] - 1) + delta
         _estado["anio"], _estado["mes"] = total // 12, total % 12 + 1
+        _estado["ver_detalle"] = None
         reconstruir()
 
     def ir_a_hoy(_e=None):
         _estado["anio"], _estado["mes"] = date.today().year, date.today().month
+        _estado["ver_detalle"] = None
         reconstruir()
 
     def reconstruir():
@@ -207,6 +211,207 @@ def build_compra_mensual_view(
         confirmar("Eliminar producto", f'¿Eliminar "{producto.nombre}" de la lista de este mes?',
                   lambda: service.eliminar_producto(producto.id))
 
+    def confirmar_accion(titulo: str, texto: str, boton: str, icono: str, accion):
+        def si(_e):
+            page.pop_dialog()
+            accion()
+
+        page.show_dialog(theme.dialogo(
+            titulo, ft.Text(texto, size=13, color=theme.TEXT_SECONDARY),
+            [theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+             theme.primary_button(boton, si, color=theme.COMPRAS_COLOR, icon=theme.to_icon(icono))],
+            icono=icono, color=theme.COMPRAS_COLOR, ancho=400,
+        ))
+
+    def copiar_de_otro_mes(lista: ListaCompra):
+        otras = [i for i in service.listas() if i.id != lista.id]
+        if not otras:
+            page.show_dialog(theme.dialogo(
+                "Copiar de otro mes", ft.Text("Todavía no hay otro mes con lista para copiar.", size=13, color=theme.TEXT_SECONDARY),
+                [theme.primary_button("Entendido", lambda e: page.pop_dialog(), color=theme.COMPRAS_COLOR)],
+                icono="content_copy_rounded", color=theme.COMPRAS_COLOR, ancho=380,
+            ))
+            return
+        anterior = next((i for i in otras if (i.anio, i.mes) < (lista.anio, lista.mes)), otras[0])
+        origen_dd = ft.Dropdown(
+            label="Copiar de", value=str(anterior.id), filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM,
+            border_color=theme.BORDER, width=380,
+            options=[ft.dropdown.Option(str(i.id), f"{i.titulo} · {i.cantidad_locales} locales, {i.cantidad_productos} productos"
+                                        + (" (cerrada)" if i.cerrada else "")) for i in otras],
+        )
+        locales_c = ft.Checkbox(label="Locales", value=True, active_color=theme.COMPRAS_COLOR)
+        productos_c = ft.Checkbox(label="Productos (con su cantidad)", value=True, active_color=theme.COMPRAS_COLOR)
+        error = ft.Text("", size=12, color=theme.EXPENSE_RED, visible=False)
+
+        def copiar(_e):
+            try:
+                n_locales, n_productos = service.copiar_de(lista.id, int(origen_dd.value), bool(locales_c.value), bool(productos_c.value))
+            except ValueError as exc:
+                error.value, error.visible = str(exc), True
+                page.update()
+                return
+            page.pop_dialog()
+            reconstruir()
+            if n_locales or n_productos:
+                avisar(f"Se copiaron {n_locales} local(es) y {n_productos} producto(s).")
+            else:
+                avisar("No había nada nuevo para copiar: ya estaban todos en este mes.")
+
+        page.show_dialog(theme.dialogo(
+            f"Copiar a {lista.titulo}",
+            ft.Column([
+                origen_dd, locales_c, productos_c,
+                ft.Text("No se copian precios ni descuentos. Lo que ya está en este mes no se duplica "
+                        f"y se respeta el máximo de {MAX_LOCALES} locales.", size=12, color=theme.TEXT_SECONDARY),
+                error,
+            ], spacing=8, tight=True),
+            [theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
+             theme.primary_button("Copiar", copiar, color=theme.COMPRAS_COLOR, icon=ft.Icons.CONTENT_COPY_ROUNDED)],
+            icono="content_copy_rounded", color=theme.COMPRAS_COLOR, ancho=400,
+        ))
+
+    def cerrar_compra(lista: ListaCompra):
+        def accion():
+            service.cerrar_lista(lista.id)
+            _estado["ver_detalle"] = None
+            reconstruir()
+            avisar(f"Compra de {lista.titulo} cerrada")
+
+        confirmar_accion(
+            "Cerrar compra mensual",
+            f"¿Cerrar la compra de {lista.titulo}? Queda guardada como resumen (solo lectura) y la sección carga más rápido. "
+            "Podés ver el detalle o reabrirla cuando quieras.",
+            "Cerrar compra", "lock_rounded", accion,
+        )
+
+    def reabrir_compra(info: InfoLista):
+        def accion():
+            service.reabrir_lista(info.id)
+            _estado["ver_detalle"] = None
+            reconstruir()
+            avisar(f"Compra de {info.titulo} reabierta")
+
+        confirmar_accion(
+            "Reabrir compra",
+            f"¿Reabrir la compra de {info.titulo}? Vuelve a la tabla editable con todo lo que tenía.",
+            "Reabrir", "lock_open_rounded", accion,
+        )
+
+    def ir_a(info: InfoLista):
+        page.pop_dialog()
+        _estado["anio"], _estado["mes"], _estado["ver_detalle"] = info.anio, info.mes, None
+        reconstruir()
+
+    def ver_cerradas(_e=None):
+        filas = []
+        for info in service.listas(solo_cerradas=True):
+            filas.append(ft.Row([
+                ft.Icon(ft.Icons.LOCK_ROUNDED, size=16, color=theme.TEXT_MUTED),
+                ft.Column([
+                    ft.Text(info.titulo, size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                    ft.Text(f"{info.cantidad_productos} artículos · {info.total.formatted() if info.total else '—'}", size=12,
+                            color=theme.TEXT_SECONDARY),
+                ], spacing=0, expand=True),
+                ft.TextButton("Ver", on_click=lambda e, i=info: ir_a(i), style=ft.ButtonStyle(color=theme.COMPRAS_COLOR)),
+            ], spacing=10))
+        page.show_dialog(theme.dialogo(
+            "Compras cerradas", ft.Column(filas, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO, height=min(360, 52 * len(filas))),
+            [theme.secondary_button("Cerrar", lambda e: page.pop_dialog())],
+            icono="lock_rounded", color=theme.COMPRAS_COLOR, ancho=380,
+        ))
+
+    # ---------- compra cerrada: resumen y detalle de solo lectura ----------
+
+    def tarjeta_cerrada(info: InfoLista) -> ft.Control:
+        registrado = info.total_registrado is not None and info.total_registrado.cents > 0
+        lineas = [
+            ft.Row([
+                ft.Icon(ft.Icons.LOCK_ROUNDED, size=18, color=theme.TEXT_SECONDARY),
+                ft.Text(info.titulo, size=17, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY),
+                ft.Container(ft.Text("CERRADA", size=11, weight=ft.FontWeight.BOLD, color=theme.TEXT_SECONDARY),
+                             bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, padding=theme.pad(horizontal=8, vertical=3)),
+            ], spacing=10),
+            ft.Text(f"{info.cantidad_productos} artículos · {info.cantidad_locales} locales", size=13, color=theme.TEXT_SECONDARY),
+            ft.Text(f"Total{' registrado' if registrado else ' (lo más barato de cada local)'}: "
+                    f"{info.total.formatted() if info.total else '—'}", size=15, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+        ]
+        if registrado and info.total_optimo is not None:
+            lineas.append(ft.Text(f"Lo más barato de cada local daba {info.total_optimo.formatted()}", size=12, color=theme.TEXT_MUTED))
+        if info.cerrada_at:
+            lineas.append(ft.Text(f"Cerrada el {info.cerrada_at.strftime('%d/%m/%Y')}", size=12, color=theme.TEXT_MUTED))
+
+        def ver_detalle(_e):
+            _estado["ver_detalle"] = info.id
+            reconstruir()
+
+        lineas.append(ft.Row([
+            theme.secondary_button("Ver detalle", ver_detalle, icon=ft.Icons.VISIBILITY_ROUNDED),
+            theme.secondary_button("Reabrir compra", lambda e: reabrir_compra(info), icon=ft.Icons.LOCK_OPEN_ROUNDED),
+        ], spacing=10))
+        return theme.card(ft.Column(lineas, spacing=6), padding=18)
+
+    def detalle_cerrada(info: InfoLista) -> ft.Control:
+        """Solo lectura y con textos (no casillas editables): se arma solo al
+        pedirlo y solo para este mes."""
+        lista = service.detalle(info.id)
+        r = calcular(lista)
+        chico = lambda t: ft.Text(t, size=10, color=theme.TEXT_MUTED, no_wrap=True)  # noqa: E731
+        columnas = [ft.DataColumn(ft.Text("Producto")), ft.DataColumn(ft.Text("Cant."), numeric=True)]
+        columnas += [ft.DataColumn(ft.Text(l.nombre), numeric=True) for l in lista.locales]
+        filas = []
+        for fila in r.filas:
+            celdas = [ft.DataCell(ft.Text(fila.producto.nombre, size=13)), ft.DataCell(ft.Text(fmt_decimal(fila.producto.cantidad), size=13))]
+            for local in lista.locales:
+                total, celda = fila.totales[local.id], lista.precio(fila.producto.id, local.id)
+                barato = local.id in fila.mas_baratos
+                nota = " · ".join(x for x in (
+                    f"{celda.precio.formatted()} c/u" if celda.precio is not None else "",
+                    f"-{fmt_decimal(celda.descuento)} %" if celda.descuento else "",
+                    celda.detalle,
+                ) if x)
+                celdas.append(ft.DataCell(ft.Column([
+                    ft.Text(total.formatted() if total is not None else "—", size=13, weight=ft.FontWeight.W_600,
+                            color=theme.INCOME_GREEN if barato else theme.TEXT_PRIMARY),
+                    *([chico(nota)] if nota else []),
+                ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.END, alignment=ft.MainAxisAlignment.CENTER)))
+            filas.append(ft.DataRow(celdas, color=theme.EXPENSE_RED_BG if fila.sin_precio else None))
+        if lista.productos:
+            filas.append(ft.DataRow([
+                ft.DataCell(ft.Text("Total comprando todo en cada local", size=12, weight=ft.FontWeight.BOLD)), ft.DataCell(ft.Text("")),
+                *[ft.DataCell(ft.Text(r.total_por_local[l.id].formatted(), size=13, weight=ft.FontWeight.BOLD)) for l in lista.locales],
+            ], color=theme.SURFACE_ALT))
+        tabla = ft.DataTable(columnas, filas, column_spacing=24, data_row_min_height=40, data_row_max_height=52,
+                             heading_row_height=40, heading_text_style=ft.TextStyle(size=12, weight=ft.FontWeight.BOLD,
+                                                                                    color=theme.TEXT_SECONDARY))
+        registros = service.registros(info.id)
+        lineas_registro = [ft.Row([
+            ft.Icon(ft.Icons.CREDIT_CARD_ROUNDED if reg.tipo == "tarjeta" else ft.Icons.PAYMENTS_ROUNDED, size=16,
+                    color=theme.TARJETAS_COLOR if reg.tipo == "tarjeta" else theme.MOVIMIENTOS_COLOR),
+            ft.Text(reg.fecha.strftime("%d/%m/%Y"), size=12, color=theme.TEXT_MUTED, width=80),
+            ft.Text(reg.descripcion, size=13, color=theme.TEXT_PRIMARY, expand=True),
+            ft.Text(reg.monto.formatted(), size=13, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+        ], spacing=10) for reg in registros]
+
+        def volver(_e):
+            _estado["ver_detalle"] = None
+            reconstruir()
+
+        return ft.Column([
+            ft.Row([
+                theme.secondary_button("Volver al resumen", volver, icon=ft.Icons.ARROW_BACK_ROUNDED),
+                theme.secondary_button("Reabrir compra", lambda e: reabrir_compra(info), icon=ft.Icons.LOCK_OPEN_ROUNDED),
+                ft.Text("Compra cerrada: solo lectura.", size=12, color=theme.TEXT_MUTED),
+            ], spacing=10),
+            theme.card(ft.Column([
+                ft.Text(f"{info.titulo} · lo más barato de cada local: {r.total_optimo.formatted()}", size=15,
+                        weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                ft.Row([tabla], scroll=ft.ScrollMode.AUTO),
+            ], spacing=10), padding=14),
+            *([theme.card(ft.Column([
+                ft.Text("Registrado en las cuentas", size=15, weight=ft.FontWeight.BOLD, color=theme.TEXT_PRIMARY), *lineas_registro,
+            ], spacing=10), padding=18)] if registros else []),
+        ], spacing=14)
+
     # ---------- tabla ----------
 
     def construir() -> list[ft.Control]:
@@ -214,7 +419,16 @@ def build_compra_mensual_view(
         anio, mes = _estado["anio"], _estado["mes"]
         hoy = date.today()
         es_mes_actual = (anio, mes) == (hoy.year, hoy.month)
-        lista = service.obtener_o_crear(anio, mes) if es_mes_actual else service.lista_del_mes(anio, mes)
+        # Primero el resumen liviano: una compra cerrada no carga su tabla.
+        info = service.info_del_mes(anio, mes)
+        cerrada = info is not None and info.cerrada
+        if cerrada:
+            lista = None
+        elif info is not None:
+            lista = service.detalle(info.id)
+        else:
+            lista = service.crear_lista(anio, mes) if es_mes_actual else None
+        n_cerradas = len(service.listas(solo_cerradas=True))
 
         navegacion = ft.Row(
             [
@@ -223,11 +437,14 @@ def build_compra_mensual_view(
                         width=190, text_align=ft.TextAlign.CENTER),
                 ft.IconButton(icon=ft.Icons.CHEVRON_RIGHT_ROUNDED, tooltip="Mes siguiente", on_click=lambda e: mover_mes(1)),
                 *([] if es_mes_actual else [ft.TextButton("Mes actual", on_click=ir_a_hoy, style=ft.ButtonStyle(color=theme.TEXT_SECONDARY))]),
+                *([ft.TextButton(f"Compras cerradas ({n_cerradas})", icon=ft.Icons.LOCK_ROUNDED, on_click=ver_cerradas,
+                                 style=ft.ButtonStyle(color=theme.TEXT_SECONDARY))] if n_cerradas else []),
             ],
             spacing=0,
         )
         acciones = ft.Row(
             [
+                theme.secondary_button("Copiar de otro mes", lambda e: copiar_de_otro_mes(lista), icon=ft.Icons.CONTENT_COPY_ROUNDED),
                 theme.secondary_button("Agregar local", lambda e: nuevo_local(lista), icon=ft.Icons.STOREFRONT_ROUNDED),
                 theme.primary_button("Agregar producto", lambda e: nuevo_producto(lista), color=theme.COMPRAS_COLOR, icon=ft.Icons.ADD_ROUNDED),
             ],
@@ -238,8 +455,11 @@ def build_compra_mensual_view(
             navegacion,
         ]
 
+        if cerrada:
+            return encabezado + [detalle_cerrada(info) if _estado["ver_detalle"] == info.id else tarjeta_cerrada(info)]
+
         if lista is None:
-            anterior = service.lista_anterior(anio, mes)
+            anterior = next((i for i in service.listas() if (i.anio, i.mes) < (anio, mes)), None)
             detalle = (f"Se copian los locales, productos, cantidades y detalles de {anterior.titulo} (sin precios)."
                        if anterior else "Arranca vacía: agregá tus locales y productos.")
 
@@ -263,10 +483,25 @@ def build_compra_mensual_view(
                 ft.Text("Para empezar, cargá una sola vez:", size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
                 *[ft.Text(f, size=13, color=theme.TEXT_SECONDARY) for f in faltan],
                 ft.Text("Después solo completás el precio de cada producto en cada local.", size=12, color=theme.TEXT_MUTED),
+                ft.Row([theme.secondary_button("Copiar locales y productos de otro mes", lambda e: copiar_de_otro_mes(lista),
+                                               icon=ft.Icons.CONTENT_COPY_ROUNDED)]),
             ], spacing=6))
-            return encabezado + [ayuda] + ([_tabla(lista)] if lista.locales or lista.productos else [])
+            return (encabezado + [ayuda] + ([_tabla(lista)] if lista.locales or lista.productos else [])
+                    + [cierre(lista)])
 
-        return encabezado + [_tabla(lista)]
+        return encabezado + [_tabla(lista)] + [cierre(lista)]
+
+    def cierre(lista: ListaCompra) -> ft.Control:
+        """Al pie de la lista: cerrar la compra para que quede como resumen."""
+        return theme.card(ft.Row([
+            ft.Column([
+                ft.Text("¿Terminaste la compra de este mes?", size=14, weight=ft.FontWeight.W_600, color=theme.TEXT_PRIMARY),
+                ft.Text("Cerrala para que quede guardada como resumen: la sección carga más liviana y podés ver el detalle "
+                        "o reabrirla cuando quieras (por ejemplo, si la cerraste antes de terminar).", size=12, color=theme.TEXT_SECONDARY),
+            ], spacing=4, expand=True),
+            theme.primary_button("Cerrar compra mensual", lambda e: cerrar_compra(lista), color=theme.COMPRAS_COLOR,
+                                 icon=ft.Icons.LOCK_ROUNDED),
+        ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=16)
 
     def _registrar_card_factory():
         """Devuelve _registrar_card(lista, base_dd, monto_f). Separado para leer mejor."""
