@@ -47,10 +47,11 @@ CATEGORIAS_BASE: list[dict] = [
     {"nombre": "Retiro de inversiones", "color": "#5C6BC0", "icono": "savings", "tipo": "ingreso"},
 ]
 
-# Categorias que la app usa por su nombre (compras con tarjeta, compra/venta
-# de dolares, inversiones): no se pueden quitar.
+# Categorias que la app usa por su nombre (pagos de tarjeta y de prestamos,
+# compra/venta de dolares, inversiones): no se pueden quitar.
 CATEGORIAS_DEL_SISTEMA = frozenset({
     "Tarjeta de crédito",
+    "Préstamos",
     "Cambio de moneda (entregado)",
     "Cambio de moneda (recibido)",
     "Inversiones",
@@ -153,6 +154,21 @@ class CuotaCompra:
 
 
 @dataclass(slots=True)
+class PagoTarjeta:
+    """Pago del resumen de una tarjeta en un mes, en una moneda. `monto` es lo
+    que se pago; `calculado`, lo que sumaban cuotas, compras en 1 pago y
+    debitos automaticos (difieren si el saldo se corrigio al pagar)."""
+    id: int | None
+    tarjeta_id: int
+    anio: int
+    mes: int
+    monto: Money
+    calculado: Money
+    fecha_pago: date
+    movimiento_id: int | None = None  # el egreso que genero el pago (los debitos automaticos tienen el suyo)
+
+
+@dataclass(slots=True)
 class Compra:
     id: int | None
     tarjeta_id: int
@@ -163,6 +179,9 @@ class Compra:
     categoria_id: int
     cantidad_cuotas: int
     cuotas: list[CuotaCompra] = field(default_factory=list)
+    # En que cuota se estaba al cargar la compra (1 = compra nueva). Esa cuota
+    # es la primera que se paga despues de `fecha`; las anteriores ya vencieron.
+    cuota_inicial: int = 1
 
     def __post_init__(self):
         if not self.concepto.strip():

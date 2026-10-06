@@ -5,8 +5,9 @@ import sqlite3
 from datetime import date
 
 from ..domain.dates import add_months
-from ..domain.models import CuotaPrestamo, Prestamo
+from ..domain.models import CuotaPrestamo, Movimiento, Prestamo, TipoMovimiento
 from ..domain.money import Money, split_in_installments
+from ..repositories.movimientos import MovimientoRepository
 from ..repositories.prestamos import PrestamoRepository
 
 
@@ -20,7 +21,9 @@ def vencimiento_cuota_prestamo(fecha_inicio: date, numero_cuota: int, dia_vencim
 
 class PrestamoService:
     def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
         self._repo = PrestamoRepository(conn)
+        self._movimientos = MovimientoRepository(conn)
 
     def registrar_prestamo(
         self,
@@ -160,10 +163,23 @@ class PrestamoService:
 
     def pagar_cuota(self, cuota_id: int, fecha_pago: date | None = None, monto: Money | None = None) -> None:
         """Paga la cuota. Si se indica `monto` distinto (la cuota vino con otro
-        valor ese mes), primero se corrige el monto de esa cuota."""
+        valor ese mes), primero se corrige el monto de esa cuota. El pago se
+        registra como un movimiento de egreso (categoria "Préstamos"), que es
+        lo que cuenta en el Resumen."""
+        fecha_pago = fecha_pago or date.today()
         if monto is not None:
             self.cambiar_monto_cuota(cuota_id, monto)
-        self._repo.marcar_cuota_pagada(cuota_id, fecha_pago or date.today())
+        self._repo.marcar_cuota_pagada(cuota_id, fecha_pago)
+        prestamo = self._repo.obtener_por_cuota(cuota_id)
+        categoria = self._conn.execute("SELECT id FROM categorias WHERE nombre = 'Préstamos' AND tipo = 'egreso'").fetchone()
+        if prestamo is None or categoria is None:
+            return
+        cuota = next(c for c in prestamo.cuotas if c.id == cuota_id)
+        self._movimientos.crear(Movimiento(
+            id=None, tipo=TipoMovimiento.EGRESO, fecha=fecha_pago, concepto=prestamo.nombre,
+            detalle=f"Préstamo · cuota {cuota.numero_cuota} de {prestamo.cantidad_cuotas}", monto=cuota.monto,
+            categoria_id=categoria["id"],
+        ))
 
     def editar_datos(self, prestamo_id: int, nombre: str, detalle: str) -> Prestamo:
         """Edita nombre y detalle de un prestamo existente. No permite cambiar el

@@ -225,6 +225,19 @@ class DashboardService:
             concepto = f"{r['tarjeta_nombre']}: {r['concepto']}"
             pagos.append(PagoDelMes("tarjeta", concepto, Money(r["monto_centavos"], r["moneda"]), date.fromisoformat(r["fecha_pago"])))
 
+        # Si al pagar la tarjeta se corrigio el saldo, la diferencia con lo que
+        # daba la cuenta (impuestos, intereses, ajustes del resumen).
+        for r in self._conn.execute(
+            """SELECT t.nombre AS tarjeta_nombre, pt.monto_centavos - pt.calculado_centavos AS diferencia, pt.moneda, pt.fecha_pago
+               FROM pagos_tarjeta pt
+               JOIN tarjetas t ON t.id = pt.tarjeta_id
+               WHERE pt.monto_centavos != pt.calculado_centavos
+                 AND strftime('%Y', pt.fecha_pago) = ? AND strftime('%m', pt.fecha_pago) = ?""",
+            (anio_s, mes_s),
+        ):
+            concepto = f"{r['tarjeta_nombre']}: ajuste del resumen"
+            pagos.append(PagoDelMes("tarjeta", concepto, Money(r["diferencia"], r["moneda"]), date.fromisoformat(r["fecha_pago"])))
+
         for r in self._conn.execute(
             """SELECT p.nombre AS concepto, cp.monto_centavos, p.moneda, cp.fecha_pago
                FROM cuotas_prestamo cp
@@ -267,8 +280,8 @@ class DashboardService:
 
     def _totales_por_tarjeta(self, hoy: date) -> list[TotalTarjeta]:
         """Lo que hay que pagar este mes de cada tarjeta: las cuotas (y compras en
-        1 pago) sin pagar que vencen en el mes, mas sus debitos automaticos. Las
-        cuotas de meses siguientes no se suman. Uno por moneda: una tarjeta
+        1 pago) sin pagar que vencen en el mes o quedaron de meses anteriores, mas
+        sus debitos automaticos. Las cuotas de meses siguientes no se suman. Uno por moneda: una tarjeta
         opera en ARS y en USD, y esos montos nunca se suman entre si."""
         mes = f"{hoy.year:04d}-{hoy.month:02d}"
         rows = self._conn.execute(
@@ -278,7 +291,7 @@ class DashboardService:
                FROM cuotas_compra cc
                JOIN compras co ON co.id = cc.compra_id
                JOIN tarjetas t ON t.id = co.tarjeta_id
-               WHERE cc.pagada = 0 AND substr(cc.fecha_vencimiento, 1, 7) = ?
+               WHERE cc.pagada = 0 AND substr(cc.fecha_vencimiento, 1, 7) <= ?
                GROUP BY t.id, co.moneda, grupo
                ORDER BY t.nombre""",
             (mes,),

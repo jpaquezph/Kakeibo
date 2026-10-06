@@ -68,8 +68,18 @@ def test_pendiente_en_tarjetas_solo_suma_las_cuotas_del_mes(conn):
     def pendientes(hoy):
         return {(tt.moneda, tt.total_pendiente.amount) for tt in DashboardService(conn).resumen(hoy=hoy).por_tarjeta}
 
+    def pagar_hasta(mes):
+        for m in range(2, mes + 1):
+            tarjetas.pagar_cuotas_del_mes(visa.id, 2026, m)
+
+    assert pendientes(date(2026, 2, 1)) == {(Moneda.ARS, 100), (Moneda.USD, 10)}
+    # Lo que no se pago en febrero se sigue debiendo en marzo
+    assert pendientes(date(2026, 3, 1)) == {(Moneda.ARS, 200), (Moneda.USD, 20)}
+    pagar_hasta(2)
     assert pendientes(date(2026, 3, 1)) == {(Moneda.ARS, 100), (Moneda.USD, 10)}
+    pagar_hasta(5)
     assert pendientes(date(2026, 6, 1)) == {(Moneda.ARS, 100)}  # el libro ya termino
+    pagar_hasta(7)
     assert pendientes(date(2026, 9, 1)) == set()  # nada vence en septiembre
 
 

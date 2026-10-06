@@ -62,6 +62,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     _ensure_categoria_activa_column(conn)
     _ensure_movimiento_metodo_pago_column(conn)
     _ensure_compra_lista_estado_columnas(conn)
+    _ensure_compra_cuota_inicial(conn)
+    _ensure_pago_tarjeta_movimiento(conn)
     _seed_categorias(conn)
     conn.commit()
 
@@ -271,6 +273,101 @@ def _ensure_compra_lista_estado_columnas(conn: sqlite3.Connection) -> None:
     for nombre, tipo in nuevas.items():
         if nombre not in columnas:
             conn.execute(f"ALTER TABLE compra_listas ADD COLUMN {nombre} {tipo}")
+
+
+def _ensure_compra_cuota_inicial(conn: sqlite3.Connection) -> None:
+    """Agrega 'cuota_inicial' a compras: en que cuota se estaba al cargarla.
+
+    Hasta la 1.5, una compra cargada ya empezada (ej: "estoy en la cuota 4")
+    con la fecha del dia dejaba las cuotas anteriores como pagadas pero con
+    vencimiento en los meses siguientes, y la cuota que tocaba pagar quedaba
+    varios meses adelante: no entraba en el resumen del mes ni en "Pagar
+    tarjeta". Esas compras se reconocen porque sus primeras cuotas figuran
+    pagadas en una fecha posterior a la carga; se les corrige el calendario
+    para que la cuota en la que se estaba venza el mes siguiente a la compra.
+    Antes de tocar nada se guarda un backup de la base junto a ella."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(compras)")}
+    if "cuota_inicial" in columnas:
+        return
+    conn.execute("ALTER TABLE compras ADD COLUMN cuota_inicial INTEGER NOT NULL DEFAULT 1")
+
+    from datetime import date
+
+    from .services.tarjetas import vencimiento_cuota
+
+    corregir = []
+    for compra in conn.execute("SELECT * FROM compras WHERE cantidad_cuotas > 1").fetchall():
+        cuotas = conn.execute("SELECT * FROM cuotas_compra WHERE compra_id = ? ORDER BY numero_cuota", (compra["id"],)).fetchall()
+        cargada = compra["created_at"][:10]
+        adelantadas = 0
+        for c in cuotas:
+            if not (c["pagada"] and c["fecha_pago"] == c["fecha_vencimiento"] and c["fecha_vencimiento"] > cargada):
+                break
+            adelantadas += 1
+        if 0 < adelantadas < len(cuotas):
+            corregir.append((compra, cuotas, adelantadas))
+    if not corregir:
+        return
+
+    _backup_antes_de_migrar(conn, "antes-de-corregir-cuotas")
+    try:
+        for compra, cuotas, adelantadas in corregir:
+            fecha = date.fromisoformat(compra["fecha"])
+            cantidad, inicial = compra["cantidad_cuotas"], adelantadas + 1
+            cerrada = cuotas[0]["fecha_vencimiento"] != vencimiento_cuota(fecha, 1, cantidad).isoformat()
+            conn.execute("UPDATE compras SET cuota_inicial = ? WHERE id = ?", (inicial, compra["id"]))
+            for c in cuotas:
+                vence = vencimiento_cuota(fecha, c["numero_cuota"], cantidad, cerrada, inicial).isoformat()
+                # Las que ya se habian pagado de verdad conservan su fecha de pago.
+                pago = vence if c["numero_cuota"] <= adelantadas else c["fecha_pago"]
+                conn.execute("UPDATE cuotas_compra SET fecha_vencimiento = ?, fecha_pago = ? WHERE id = ?", (vence, pago, c["id"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _ensure_pago_tarjeta_movimiento(conn: sqlite3.Connection) -> None:
+    """Agrega 'movimiento_id' a pagos_tarjeta: el egreso que genera cada pago
+    del resumen. Los pagos hechos antes de que existiera (primer armado de la
+    1.6) no habian registrado egreso: se les crea ahora, por lo pagado menos
+    los debitos automaticos (que ya tenian el suyo como gastos fijos). Antes
+    de tocar nada se guarda un backup de la base junto a ella."""
+    columnas = {row["name"] for row in conn.execute("PRAGMA table_info(pagos_tarjeta)")}
+    if "movimiento_id" in columnas:
+        return
+    conn.execute("ALTER TABLE pagos_tarjeta ADD COLUMN movimiento_id INTEGER REFERENCES movimientos(id) ON DELETE SET NULL")
+    pagos = conn.execute(
+        "SELECT pt.*, t.nombre AS tarjeta_nombre FROM pagos_tarjeta pt JOIN tarjetas t ON t.id = pt.tarjeta_id"
+    ).fetchall()
+    categoria = conn.execute("SELECT id FROM categorias WHERE nombre = 'Tarjeta de crédito' AND tipo = 'egreso'").fetchone()
+    if not pagos or categoria is None:
+        return
+
+    _backup_antes_de_migrar(conn, "antes-de-sumar-pagos-de-tarjeta")
+    try:
+        for p in pagos:
+            # Lo pagado en cuotas y compras en 1 pago ese dia, mas la correccion del saldo.
+            cuotas = conn.execute(
+                """SELECT COALESCE(SUM(cc.monto_centavos), 0) AS total
+                   FROM cuotas_compra cc JOIN compras co ON co.id = cc.compra_id
+                   WHERE co.tarjeta_id = ? AND co.moneda = ? AND cc.pagada = 1 AND cc.fecha_pago = ?""",
+                (p["tarjeta_id"], p["moneda"], p["fecha_pago"]),
+            ).fetchone()["total"]
+            monto = cuotas + p["monto_centavos"] - p["calculado_centavos"]
+            if monto <= 0:
+                continue
+            cur = conn.execute(
+                """INSERT INTO movimientos (tipo, fecha, concepto, detalle, monto_centavos, moneda, categoria_id, tarjeta_id)
+                   VALUES ('egreso', ?, ?, ?, ?, ?, ?, ?)""",
+                (p["fecha_pago"], f"Pago tarjeta {p['tarjeta_nombre']}", f"Resumen {p['mes']:02d}/{p['anio']}", monto,
+                 p["moneda"], categoria["id"], p["tarjeta_id"]),
+            )
+            conn.execute("UPDATE pagos_tarjeta SET movimiento_id = ? WHERE id = ?", (cur.lastrowid, p["id"]))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def _seed_categorias(conn: sqlite3.Connection) -> None:

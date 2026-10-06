@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime
 
 import flet as ft
@@ -41,6 +42,15 @@ def filtrar_por_forma(compras, forma: str) -> list:
     return list(compras)
 
 
+def vencimiento_en_resumen(vence: date, dia_vencimiento: int | None) -> date:
+    """Cuando se paga una cuota: el dia en que vence el resumen de la tarjeta,
+    en el mes de la cuota. Si la tarjeta no tiene cargado el dia de
+    vencimiento, vale la fecha de la cuota."""
+    if dia_vencimiento is None:
+        return vence
+    return vence.replace(day=min(dia_vencimiento, calendar.monthrange(vence.year, vence.month)[1]))
+
+
 def build_tarjetas_view(
     page: ft.Page, tarjeta_service: TarjetaService, categoria_repo: CategoriaRepository, gasto_fijo_service: GastoFijoService,
 ) -> ft.Control:
@@ -65,13 +75,23 @@ def build_tarjetas_view(
         page.update()
 
     def _tarjeta_card(t, seleccionada, on_click):
-        hoy = date.today()
-        # Cuotas pendientes + debitos automaticos del mes: todo lo que hay que
-        # pagar, por moneda (la tarjeta opera en ARS y en USD).
-        pendientes = [
-            tarjeta_service.total_pendiente(t.id, m) + gasto_fijo_service.total_debitos_pendientes(t.id, hoy.year, hoy.month, m)
-            for m in Moneda
-        ]
+        # Lo que hay que pagar este mes (cuotas del mes, compras en 1 pago y
+        # debitos automaticos) y, aparte, todo lo que falta de las compras.
+        resumen, debitos_pendientes, debitos_pagados = _resumen_mes(t.id)
+        del_mes = [cu.monto for _co, cu in resumen.pendientes] + [o.gasto.monto for o in debitos_pendientes]
+        deuda = [tarjeta_service.total_pendiente(t.id, m) for m in Moneda]
+        if del_mes:
+            total_mes = _formatear_totales(del_mes)
+            linea_mes = ft.Text(f"Este mes: {total_mes}", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD,
+                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=f"A pagar este mes: {total_mes}")
+        elif resumen.pagos or resumen.pagadas or debitos_pagados:
+            linea_mes = ft.Row(
+                [ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, color="#FFFFFF", size=14),
+                 ft.Text("Mes saldado", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD)],
+                spacing=4,
+            )
+        else:
+            linea_mes = ft.Text("Sin consumos este mes", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD)
         return ft.Container(
             content=ft.Column(
                 [
@@ -97,10 +117,11 @@ def build_tarjetas_view(
                                 f"cierra {t.dia_cierre}" if t.dia_cierre else "",
                                 f"vence {t.dia_vencimiento}" if t.dia_vencimiento else ""] if p),
                             color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=10, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS),
-                    *([ft.Text(f"Pendiente {p.moneda.value}: {p.formatted()}", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD,
-                               max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, tooltip=p.formatted())
-                       for p in pendientes if p.cents]
-                      or [ft.Text("Sin pendientes", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD)]),
+                    linea_mes,
+                    *([ft.Text(f"Deuda total: {_formatear_totales(deuda)}", color=ft.Colors.with_opacity(0.85, "#FFFFFF"), size=10,
+                               max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                               tooltip="Todas las cuotas que faltan pagar, de este mes y de los que vienen")]
+                      if any(d.cents for d in deuda) else []),
                 ],
                 spacing=1,
             ),
@@ -129,7 +150,7 @@ def build_tarjetas_view(
             return
         compras = tarjeta_service.listar_compras(estado["tarjeta_id"])
         tarjeta_actual = tarjeta_service.obtener_tarjeta(estado["tarjeta_id"])
-        banner = _banner_pagar_mes(estado["tarjeta_id"])
+        banner = _banner_mes(estado["tarjeta_id"])
         if banner:
             detalle_col.controls.append(banner)
         debitos = _debitos_card(estado["tarjeta_id"])
@@ -162,16 +183,20 @@ def build_tarjetas_view(
             border=ft.InputBorder.NONE, content_padding=components.PADDING_FILTRO,
         )
         contador = f"Mostrando {mostradas} de {total}" if _filtro["forma"] != "todas" else f"{total} compra(s)"
-        # Totales de las compras que muestra el filtro elegido (por moneda, sin mezclar).
-        que = {"todas": "de las compras", "cuotas": "en cuotas", "un_pago": "en 1 pago"}[_filtro["forma"]]
+        # Lo que hay que pagar este mes de las compras que muestra el filtro
+        # (por moneda, sin mezclar). Sin filtro suma tambien los debitos
+        # automaticos: es el total del mes de la tarjeta.
+        resumen, debitos, _pagados = _resumen_mes(estado["tarjeta_id"])
+        ids = {c.id for c in visibles}
+        del_mes = [cu.monto for co, cu in resumen.pendientes if co.id in ids]
+        if _filtro["forma"] == "todas":
+            del_mes += [o.gasto.monto for o in debitos]
+        que = {"todas": "", "cuotas": " en cuotas", "un_pago": " en 1 pago"}[_filtro["forma"]]
         totales = ft.Row(
             [
-                ft.Text(f"Total {que}:", size=12, color=theme.TEXT_SECONDARY),
-                ft.Text(_formatear_totales([c.monto_total for c in visibles]), size=13, weight=ft.FontWeight.BOLD,
-                        color=theme.TARJETAS_COLOR),
-                ft.Text("· Pendiente:", size=12, color=theme.TEXT_SECONDARY),
-                ft.Text(_formatear_totales([c.monto_pendiente for c in visibles]), size=13, weight=ft.FontWeight.BOLD,
-                        color=theme.EXPENSE_RED),
+                ft.Text(f"Total mensual{que}:", size=12, color=theme.TEXT_SECONDARY),
+                ft.Text(_formatear_totales(del_mes), size=13, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR,
+                        tooltip="Lo que hay que pagar este mes"),
             ],
             spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ) if visibles else ft.Container()
@@ -183,21 +208,25 @@ def build_tarjetas_view(
             spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
-    def _pendiente_del_mes(tarjeta_id: int):
-        """Cuotas y debitos automaticos sin pagar de este mes, y el total."""
+    def _resumen_mes(tarjeta_id: int):
+        """El resumen de este mes, y sus debitos automaticos sin pagar y pagados."""
         hoy = date.today()
-        cuotas = tarjeta_service.cuotas_pendientes_del_mes(tarjeta_id, hoy.year, hoy.month)
-        debitos = [o for o in gasto_fijo_service.debitos_del_mes(tarjeta_id, hoy.year, hoy.month) if not o.ya_registrado]
-        montos = [c.monto for c in cuotas] + [o.gasto.monto for o in debitos]
-        return cuotas, debitos, (_formatear_totales(montos) if montos else None)
+        resumen = tarjeta_service.resumen_del_mes(tarjeta_id, hoy.year, hoy.month)
+        debitos = gasto_fijo_service.debitos_del_mes(tarjeta_id, hoy.year, hoy.month)
+        return resumen, [o for o in debitos if not o.ya_registrado], [o for o in debitos if o.ya_registrado]
 
-    def _descripcion_pendiente(cuotas, debitos) -> str:
-        partes = []
-        if cuotas:
-            partes.append(f"{len(cuotas)} cuota(s)")
-        if debitos:
-            partes.append(f"{len(debitos)} débito(s) automático(s)")
-        return " y ".join(partes)
+    def _partes_pendientes(resumen, debitos) -> list[tuple[str, list[Money]]]:
+        """Lo que falta pagar del mes separado en cuotas, compras en 1 pago y
+        debitos automaticos (solo los grupos que tienen algo)."""
+        cuotas = [cu.monto for co, cu in resumen.pendientes if co.cantidad_cuotas > 1]
+        un_pago = [cu.monto for co, cu in resumen.pendientes if co.cantidad_cuotas == 1]
+        automaticos = [o.gasto.monto for o in debitos]
+        partes = [
+            (f"{len(cuotas)} cuota(s)", cuotas),
+            (f"{len(un_pago)} compra(s) en 1 pago", un_pago),
+            (f"{len(automaticos)} débito(s) automático(s)", automaticos),
+        ]
+        return [(titulo, montos) for titulo, montos in partes if montos]
 
     def _debitos_card(tarjeta_id: int):
         hoy = date.today()
@@ -232,50 +261,99 @@ def build_tarjetas_view(
             padding=14,
         )
 
-    def _banner_pagar_mes(tarjeta_id: int):
-        cuotas, debitos, total = _pendiente_del_mes(tarjeta_id)
-        if total is None:
+    def _banner_mes(tarjeta_id: int):
+        mes = _MESES[date.today().month - 1].lower()
+        resumen, debitos_pendientes, debitos_pagados = _resumen_mes(tarjeta_id)
+        partes = _partes_pendientes(resumen, debitos_pendientes)
+        if partes:
+            total = _formatear_totales([m for _titulo, montos in partes for m in montos])
+            return theme.card(
+                ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                ft.Text(f"Total a pagar en {mes}: {total}", size=14, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
+                                ft.Text(" · ".join(f"{titulo}: {_formatear_totales(montos)}" for titulo, montos in partes),
+                                        size=12, color=theme.TEXT_SECONDARY),
+                            ],
+                            spacing=2, expand=True,
+                        ),
+                        theme.primary_button("Pagar tarjeta (mes)", lambda e, tid=tarjeta_id: confirmar_pagar_mes(tid), color=theme.TARJETAS_COLOR, icon=ft.Icons.PAYMENTS_ROUNDED),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                padding=14,
+            )
+        if not (resumen.pagos or resumen.pagadas or debitos_pagados):
             return None
+        if resumen.pagos:
+            pagado = _formatear_totales([p.monto for p in resumen.pagos])
+            detalle = f"Pagaste {pagado} el {resumen.pagos[-1].fecha_pago.strftime('%d/%m/%Y')}."
+        else:
+            detalle = "Ya está pago todo lo que vencía este mes."
         return theme.card(
             ft.Row(
                 [
-                    ft.Column(
-                        [
-                            ft.Text(f"{_descripcion_pendiente(cuotas, debitos)} vencen este mes", size=13, weight=ft.FontWeight.BOLD, color=theme.TARJETAS_COLOR),
-                            ft.Text(f"Total: {total}", size=12, color=theme.TEXT_SECONDARY),
-                        ],
-                        spacing=2, expand=True,
-                    ),
-                    theme.primary_button("Pagar tarjeta (mes)", lambda e, tid=tarjeta_id: confirmar_pagar_mes(tid), color=theme.TARJETAS_COLOR, icon=ft.Icons.PAYMENTS_ROUNDED),
+                    components.category_chip("Mes saldado", theme.INCOME_GREEN, "check_circle_rounded"),
+                    ft.Text(f"{mes.capitalize()}: {detalle}", size=13, color=theme.TEXT_PRIMARY, expand=True),
                 ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             padding=14,
         )
 
     def confirmar_pagar_mes(tarjeta_id: int):
         hoy = date.today()
-        cuotas, debitos, total = _pendiente_del_mes(tarjeta_id)
+        resumen, debitos, _pagados = _resumen_mes(tarjeta_id)
+        partes = _partes_pendientes(resumen, debitos)
+        calculado: dict[Moneda, Money] = {}
+        for _titulo, montos in partes:
+            for m in montos:
+                calculado[m.moneda] = calculado[m.moneda] + m if m.moneda in calculado else m
+        # El saldo se puede corregir: el resumen de la tarjeta puede venir con
+        # otro importe (impuestos, intereses, ajustes). Un campo por moneda.
+        campos = {
+            moneda: ft.TextField(
+                label=f"Saldo a pagar ({moneda.value})", value=components.monto_editable(total), keyboard_type=ft.KeyboardType.NUMBER,
+                filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER,
+            )
+            for moneda, total in calculado.items()
+        }
+        error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)
 
         def confirmar(_e):
-            tarjeta_service.pagar_cuotas_del_mes(tarjeta_id, hoy.year, hoy.month)
-            gasto_fijo_service.registrar_debitos_del_mes(tarjeta_id, hoy.year, hoy.month)
+            try:
+                pagado = {moneda: components.parse_monto(campo.value, moneda, f"Saldo a pagar ({moneda.value})")
+                          for moneda, campo in campos.items()}
+                tarjeta_service.pagar_mes(tarjeta_id, hoy.year, hoy.month, [o.gasto.monto for o in debitos], pagado)
+                gasto_fijo_service.registrar_debitos_del_mes(tarjeta_id, hoy.year, hoy.month)
+            except (ValueError, ArithmeticError) as exc:
+                error_text.value, error_text.visible = str(exc), True
+                page.update()
+                return
             page.pop_dialog()
             refrescar_tarjetas()
 
         dialog = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Pagar tarjeta del mes"),
-            content=ft.Column(
-                [
-                    ft.Text(f"¿Marcar como pagados {_descripcion_pendiente(cuotas, debitos)} que vencen este mes, por un total de {total}?"),
-                    ft.Text(
-                        "Nota: si compraste algo en cuotas hace poco, su 1ra cuota recién vence el mes que viene, "
-                        "por eso puede no estar incluida todavía.",
-                        size=11, color=theme.TEXT_MUTED, italic=True,
-                    ),
-                ],
-                spacing=10, tight=True,
+            title=components.titulo_con_error(f"Pagar tarjeta de {_MESES[hoy.month - 1].lower()}", error_text),
+            content=ft.Container(
+                ft.Column(
+                    [
+                        ft.Text("Se marca como pagado todo lo de este mes:", size=13, weight=ft.FontWeight.W_600),
+                        *[ft.Text(f"•  {titulo}: {_formatear_totales(montos)}", size=13) for titulo, montos in partes],
+                        *campos.values(),
+                        ft.Text("Si el resumen vino con otro importe (impuestos, intereses, ajustes), corregí el saldo antes de pagar.",
+                                size=11, color=theme.TEXT_MUTED),
+                        ft.Text(
+                            "Nota: si compraste algo en cuotas hace poco, su 1ra cuota recién vence el mes que viene, "
+                            "por eso puede no estar incluida todavía.",
+                            size=11, color=theme.TEXT_MUTED, italic=True,
+                        ),
+                    ],
+                    spacing=10, tight=True, scroll=ft.ScrollMode.AUTO,
+                ),
+                width=400,
             ),
             actions=[
                 theme.secondary_button("Cancelar", lambda e: page.pop_dialog()),
@@ -296,6 +374,16 @@ def build_tarjetas_view(
             )
         else:
             estado_pago = components.category_chip("Compra saldada", theme.INCOME_GREEN, "check_circle_rounded")
+
+        # Mientras falte pagar se muestra cuando vence lo proximo (cambia al pagar
+        # cada cuota); la compra saldada muestra la fecha en que se hizo.
+        comprada = c.fecha.strftime("%d/%m/%Y")
+        if proxima:
+            vence = vencimiento_en_resumen(proxima.fecha_vencimiento, tarjeta_actual.dia_vencimiento if tarjeta_actual else None)
+            fecha_txt = ft.Text(f"Vence {vence.strftime('%d/%m/%Y')}", size=11, color=theme.TEXT_SECONDARY,
+                                tooltip=f"Comprado el {comprada}")
+        else:
+            fecha_txt = ft.Text(comprada, size=11, color=theme.TEXT_SECONDARY)
 
         if c.cantidad_cuotas > 1:
             forma = components.category_chip(f"Cuota {c.cuota_actual} de {c.cantidad_cuotas}", theme.TARJETAS_COLOR, "calendar_view_month_rounded")
@@ -319,7 +407,7 @@ def build_tarjetas_view(
                     *([ft.Text(c.detalle, size=12, color=theme.TEXT_SECONDARY, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, tooltip=c.detalle)]
                       if c.detalle else []),
                     ft.Row(
-                        [forma, ft.Text(c.fecha.strftime("%d/%m/%Y"), size=11, color=theme.TEXT_SECONDARY)],
+                        [forma, fecha_txt],
                         spacing=8, wrap=True,
                     ),
                     ft.Row(
@@ -725,7 +813,7 @@ def build_tarjetas_view(
         cuota_inicial_f = ft.TextField(
             label="¿En qué cuota empezás?", value="1", filled=True, bgcolor=theme.SURFACE_ALT,
             border_radius=theme.RADIUS_SM, border_color=theme.BORDER, keyboard_type=ft.KeyboardType.NUMBER,
-            helper="Si ya veniás pagando (ej: compraste hace 3 meses), poné en qué cuota estás ahora.",
+            helper="Si ya veniás pagando (ej: compraste hace 3 meses), dejá la fecha de hoy y poné la cuota que te toca pagar ahora.",
         )
         # En cuotas se puede cargar el total de la compra o el valor de cada
         # cuota (el total se calcula: valor de cuota x cantidad de cuotas).
@@ -775,7 +863,11 @@ def build_tarjetas_view(
         def actualizar_primer_vencimiento(_e=None):
             es_en_cuotas = "cuotas" in tipo_selector.selected
             vence = vencimiento_cuota(fecha_holder["value"], 1, 2 if es_en_cuotas else 1, bool(cerrada_check.value))
-            que = "La primera cuota se paga" if es_en_cuotas else "Se paga"
+            que = "Se paga"
+            if es_en_cuotas:
+                # Cargada ya empezada, la cuota en la que se esta es la primera que se paga.
+                inicial = (cuota_inicial_f.value or "").strip()
+                que = f"La cuota {inicial} se paga" if inicial.isdigit() and int(inicial) > 1 else "La primera cuota se paga"
             primer_vencimiento_text.value = f"{que} en {_MESES[vence.month - 1].lower()} {vence.year}."
 
         def on_tipo_change(_e):
@@ -790,6 +882,7 @@ def build_tarjetas_view(
 
         tipo_selector.on_change = on_tipo_change
         cerrada_check.on_change = on_cerrada_change
+        cuota_inicial_f.on_change = on_cerrada_change
         actualizar_primer_vencimiento()
 
         error_text = ft.Text("", color=theme.EXPENSE_RED, size=12, visible=False)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date
 
-from ..domain.models import Compra, CuotaCompra, Tarjeta
+from ..domain.models import Compra, CuotaCompra, PagoTarjeta, Tarjeta
 from ..domain.money import Money, Moneda
 
 
@@ -59,6 +59,7 @@ class TarjetaRepository:
             self._conn.execute("DELETE FROM compras WHERE tarjeta_id = ?", (tarjeta_id,))  # cuotas_compra cae en cascada
             self._conn.execute("UPDATE gastos_fijos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
             self._conn.execute("UPDATE movimientos SET tarjeta_id = NULL WHERE tarjeta_id = ?", (tarjeta_id,))
+            self._conn.execute("DELETE FROM pagos_tarjeta WHERE tarjeta_id = ?", (tarjeta_id,))
             self._conn.execute("DELETE FROM tarjetas WHERE id = ?", (tarjeta_id,))
             self._conn.commit()
         except Exception:
@@ -75,6 +76,28 @@ class TarjetaRepository:
     def obtener(self, tarjeta_id: int) -> Tarjeta | None:
         row = self._conn.execute("SELECT * FROM tarjetas WHERE id = ?", (tarjeta_id,)).fetchone()
         return self._map(row) if row else None
+
+    def registrar_pago(self, pago: PagoTarjeta) -> int:
+        cur = self._conn.execute(
+            """INSERT INTO pagos_tarjeta
+               (tarjeta_id, anio, mes, moneda, monto_centavos, calculado_centavos, fecha_pago, movimiento_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (pago.tarjeta_id, pago.anio, pago.mes, pago.monto.moneda.value, pago.monto.cents, pago.calculado.cents,
+             pago.fecha_pago.isoformat(), pago.movimiento_id),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def pagos_del_mes(self, tarjeta_id: int, anio: int, mes: int) -> list[PagoTarjeta]:
+        rows = self._conn.execute(
+            "SELECT * FROM pagos_tarjeta WHERE tarjeta_id = ? AND anio = ? AND mes = ? ORDER BY id", (tarjeta_id, anio, mes)
+        ).fetchall()
+        return [
+            PagoTarjeta(id=r["id"], tarjeta_id=r["tarjeta_id"], anio=r["anio"], mes=r["mes"],
+                        monto=Money(r["monto_centavos"], r["moneda"]), calculado=Money(r["calculado_centavos"], r["moneda"]),
+                        fecha_pago=date.fromisoformat(r["fecha_pago"]), movimiento_id=r["movimiento_id"])
+            for r in rows
+        ]
 
 
 class CompraRepository:
@@ -103,13 +126,14 @@ class CompraRepository:
             categoria_id=row["categoria_id"],
             cantidad_cuotas=row["cantidad_cuotas"],
             cuotas=cuotas,
+            cuota_inicial=row["cuota_inicial"],
         )
 
     def crear_con_cuotas(self, compra: Compra) -> int:
         cur = self._conn.execute(
             """INSERT INTO compras
-               (tarjeta_id, fecha, concepto, detalle, monto_total_centavos, moneda, categoria_id, cantidad_cuotas)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (tarjeta_id, fecha, concepto, detalle, monto_total_centavos, moneda, categoria_id, cantidad_cuotas, cuota_inicial)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 compra.tarjeta_id,
                 compra.fecha.isoformat(),
@@ -119,6 +143,7 @@ class CompraRepository:
                 compra.monto_total.moneda.value,
                 compra.categoria_id,
                 compra.cantidad_cuotas,
+                compra.cuota_inicial,
             ),
         )
         compra_id = cur.lastrowid
@@ -143,9 +168,9 @@ class CompraRepository:
         try:
             self._conn.execute(
                 """UPDATE compras SET tarjeta_id = ?, fecha = ?, concepto = ?, detalle = ?, monto_total_centavos = ?,
-                   moneda = ?, cantidad_cuotas = ? WHERE id = ?""",
+                   moneda = ?, cantidad_cuotas = ?, cuota_inicial = ? WHERE id = ?""",
                 (compra.tarjeta_id, compra.fecha.isoformat(), compra.concepto, compra.detalle, compra.monto_total.cents,
-                 compra.monto_total.moneda.value, compra.cantidad_cuotas, compra.id),
+                 compra.monto_total.moneda.value, compra.cantidad_cuotas, compra.cuota_inicial, compra.id),
             )
             self._conn.execute("DELETE FROM cuotas_compra WHERE compra_id = ?", (compra.id,))
             self._insertar_cuotas(compra.id, compra.cuotas)
@@ -172,6 +197,12 @@ class CompraRepository:
             (fecha_pago.isoformat(), cuota_id),
         )
         self._conn.commit()
+
+    def obtener_por_cuota(self, cuota_id: int) -> Compra | None:
+        row = self._conn.execute(
+            "SELECT co.* FROM compras co JOIN cuotas_compra cc ON cc.compra_id = co.id WHERE cc.id = ?", (cuota_id,)
+        ).fetchone()
+        return self._con_cuotas(row) if row else None
 
     def eliminar(self, compra_id: int) -> None:
         self._conn.execute("DELETE FROM compras WHERE id = ?", (compra_id,))
