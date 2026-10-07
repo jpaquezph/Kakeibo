@@ -246,7 +246,7 @@ async def tarjetas(m: Motor):
         (m.control("Monto total", TF, dialogo=True), "Monto", "con coma o punto para los decimales."),
         (m.control("Moneda", DD, dialogo=True), "Moneda", "cada compra elige si es en pesos o en dólares. (Nuevo en 1.3)"),
         (m.control(tipo=ft.SegmentedButton, dialogo=True), "1 pago o en cuotas", "cómo la pagaste."),
-        (m.control("La tarjeta ya cerró el resumen de este mes", ft.Checkbox, dialogo=True), "Resumen cerrado", "tildalo si compraste después del cierre: todo se corre un mes."),
+        (m.control("Entra en el resumen de", DD, dialogo=True), "Resumen", "el mes en que se paga, según el cierre y el vencimiento de la tarjeta; se puede cambiar. (Nuevo en 1.7)"),
     ], pie="Nueva compra en 1 pago, en dólares.", solo_dialogo=True)
     await m.elegir("Moneda", "ARS", dialogo=True)
     await m.segmento("cuotas", n=0)

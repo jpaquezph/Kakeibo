@@ -543,7 +543,7 @@ class CompraMensualService:
 
     def registrar_en_tarjeta(
         self, lista_id: int, tarjeta_id: int, fecha: date, concepto: str, monto: Money, categoria_id: int,
-        cuotas: int = 1, tarjeta_cerrada: bool = False,
+        cuotas: int = 1, tarjeta_cerrada: bool = False, meses_al_resumen: int | None = None,
     ) -> None:
         """Registra la compra en una tarjeta de credito (en pesos), en 1 pago o en cuotas."""
         self._verificar_abierta(lista_id)
@@ -555,6 +555,7 @@ class CompraMensualService:
             raise ValueError("Las cuotas tienen que ser 1 o más")
         compra = self._tarjetas.registrar_compra(
             tarjeta_id, fecha, concepto, "Compra mensual", monto, categoria_id, cuotas, tarjeta_cerrada=tarjeta_cerrada,
+            meses_al_resumen=meses_al_resumen,
         )
         descripcion = f"{tarjeta.nombre} · " + ("1 pago" if cuotas == 1 else f"{cuotas} cuotas")
         self._guardar_registro(lista_id, "tarjeta", compra.id, monto, fecha, descripcion)

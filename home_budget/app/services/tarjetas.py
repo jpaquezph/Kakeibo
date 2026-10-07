@@ -12,17 +12,43 @@ from ..repositories.movimientos import MovimientoRepository
 from ..repositories.tarjetas import CompraRepository, TarjetaRepository
 
 
+def _dia_en_el_mes(base: date, dia: int) -> date:
+    return base.replace(day=min(dia, calendar.monthrange(base.year, base.month)[1]))
+
+
+def meses_hasta_el_resumen(fecha_compra: date, dia_cierre: int | None, dia_vencimiento: int | None) -> int | None:
+    """Cuantos meses despues de la compra se paga el resumen en el que entra:
+    el que cierra en el proximo dia de cierre (lo comprado el mismo dia del
+    cierre todavia entra) y se paga en el vencimiento que le sigue. Ej: cierra
+    el 22 y vence el 7 -> lo comprado hasta el 22 de octubre se paga en
+    noviembre y lo de despues, en diciembre. `None` si la tarjeta no tiene
+    cargados los dos dias."""
+    if dia_cierre is None or dia_vencimiento is None:
+        return None
+    cierre = _dia_en_el_mes(fecha_compra, dia_cierre)
+    if cierre < fecha_compra:
+        cierre = _dia_en_el_mes(add_months(fecha_compra.replace(day=1), 1), dia_cierre)
+    vence = _dia_en_el_mes(cierre, dia_vencimiento)
+    if vence <= cierre:
+        vence = _dia_en_el_mes(add_months(cierre.replace(day=1), 1), dia_vencimiento)
+    return (vence.year - fecha_compra.year) * 12 + vence.month - fecha_compra.month
+
+
 def vencimiento_cuota(
     fecha_compra: date, numero_cuota: int, cantidad_cuotas: int, tarjeta_cerrada: bool = False, cuota_inicial: int = 1,
+    meses_al_resumen: int | None = None,
 ) -> date:
-    """En cuotas, la 1ra vence el mes siguiente a la compra; en 1 pago, el
-    mismo mes. Si la tarjeta ya cerro el resumen del mes, todo se corre un
-    mes mas (ej: compra en enero en cuotas con la tarjeta cerrada -> 1ra
-    cuota en marzo). Si la compra se cargo ya empezada (`cuota_inicial` > 1),
-    esa cuota es la que vence el mes siguiente a la fecha de carga y las
-    anteriores quedan en los meses de atras."""
-    desfase = 1 if tarjeta_cerrada else 0
-    meses = (numero_cuota - (cuota_inicial - 1) if cantidad_cuotas > 1 else 0) + desfase
+    """`meses_al_resumen`: cuantos meses despues de la compra se paga el
+    resumen en el que entra (ver `meses_hasta_el_resumen`). Ahi cae la compra
+    en 1 pago o la 1ra cuota, y las demas en los meses que siguen. Si la
+    compra se cargo ya empezada (`cuota_inicial` > 1), la que cae ahi es esa
+    cuota y las anteriores quedan en los meses de atras.
+    Sin `meses_al_resumen` vale la regla anterior a la 1.7: en cuotas, la 1ra
+    vence el mes siguiente a la compra; en 1 pago, el mismo mes; y con
+    `tarjeta_cerrada` todo se corre un mes mas."""
+    if meses_al_resumen is None:
+        meses_al_resumen = (1 if cantidad_cuotas > 1 else 0) + (1 if tarjeta_cerrada else 0)
+    meses = meses_al_resumen + (numero_cuota - cuota_inicial if cantidad_cuotas > 1 else 0)
     return add_months(fecha_compra, meses) if meses else fecha_compra
 
 
@@ -30,7 +56,8 @@ def vencimiento_cuota(
 class ResumenMesTarjeta:
     """Lo que entra en el resumen de una tarjeta en un mes. `pendientes`: las
     cuotas (y compras en 1 pago) sin pagar que vencen ese mes o quedaron sin
-    pagar de meses anteriores. `pagadas`: las de ese mes que ya se pagaron.
+    pagar de meses anteriores. `pagadas`: las que se pagaron con ese resumen
+    (las del mes y las atrasadas que se pagaron recien ese mes).
     Cada una va con su compra. `pagos`: los pagos del resumen registrados."""
     pendientes: list[tuple[Compra, CuotaCompra]] = field(default_factory=list)
     pagadas: list[tuple[Compra, CuotaCompra]] = field(default_factory=list)
@@ -117,10 +144,12 @@ class TarjetaService:
         cantidad_cuotas: int = 1,
         cuota_inicial: int = 1,
         tarjeta_cerrada: bool = False,
+        meses_al_resumen: int | None = None,
     ) -> Compra:
         if not (1 <= cuota_inicial <= cantidad_cuotas):
             raise ValueError("La cuota actual debe estar entre 1 y la cantidad total de cuotas")
-        cuotas = self._armar_cuotas(fecha, monto_total, cantidad_cuotas, cuota_inicial - 1, tarjeta_cerrada, cuota_inicial)
+        cuotas = self._armar_cuotas(fecha, monto_total, cantidad_cuotas, cuota_inicial - 1, tarjeta_cerrada, cuota_inicial,
+                                    meses_al_resumen)
         compra = Compra(
             id=None,
             tarjeta_id=tarjeta_id,
@@ -139,7 +168,7 @@ class TarjetaService:
     @staticmethod
     def _armar_cuotas(
         fecha: date, monto_total: Money, cantidad_cuotas: int, cuotas_pagadas: int, tarjeta_cerrada: bool,
-        cuota_inicial: int = 1,
+        cuota_inicial: int = 1, meses_al_resumen: int | None = None,
     ) -> list[CuotaCompra]:
         """Divide el monto en cuotas con su vencimiento. Las primeras
         `cuotas_pagadas` quedan pagadas, con su vencimiento como fecha de pago."""
@@ -150,7 +179,7 @@ class TarjetaService:
         cuotas = []
         for i, monto in enumerate(split_in_installments(monto_total, cantidad_cuotas)):
             numero = i + 1
-            vencimiento = vencimiento_cuota(fecha, numero, cantidad_cuotas, tarjeta_cerrada, cuota_inicial)
+            vencimiento = vencimiento_cuota(fecha, numero, cantidad_cuotas, tarjeta_cerrada, cuota_inicial, meses_al_resumen)
             pagada = numero <= cuotas_pagadas
             cuotas.append(CuotaCompra(
                 id=None, compra_id=0, numero_cuota=numero, monto=monto, fecha_vencimiento=vencimiento, pagada=pagada,
@@ -166,11 +195,12 @@ class TarjetaService:
 
     def _cuotas_editadas(
         self, actual: Compra, fecha: date, monto_total: Money, cantidad_cuotas: int, cuotas_pagadas: int, tarjeta_cerrada: bool,
-        cuota_inicial: int = 1,
+        cuota_inicial: int = 1, meses_al_resumen: int | None = None,
     ) -> list[CuotaCompra]:
         conservadas = self.cuotas_que_se_conservan(actual, min(cuotas_pagadas, cantidad_cuotas))
         if not conservadas:
-            return self._armar_cuotas(fecha, monto_total, cantidad_cuotas, cuotas_pagadas, tarjeta_cerrada, cuota_inicial)
+            return self._armar_cuotas(fecha, monto_total, cantidad_cuotas, cuotas_pagadas, tarjeta_cerrada, cuota_inicial,
+                                      meses_al_resumen)
         if any(c.monto.moneda != monto_total.moneda for c in conservadas):
             raise ValueError("No se puede cambiar la moneda de una compra con cuotas pagadas")
         ya_pagado = Money.zero(monto_total.moneda)
@@ -193,7 +223,7 @@ class TarjetaService:
         if restantes:
             montos = split_in_installments(Money(falta, monto_total.moneda), restantes)
             for numero, monto in zip(range(len(conservadas) + 1, cantidad_cuotas + 1), montos):
-                vencimiento = vencimiento_cuota(fecha, numero, cantidad_cuotas, tarjeta_cerrada, cuota_inicial)
+                vencimiento = vencimiento_cuota(fecha, numero, cantidad_cuotas, tarjeta_cerrada, cuota_inicial, meses_al_resumen)
                 pagada = numero <= cuotas_pagadas
                 cuotas.append(CuotaCompra(id=None, compra_id=0, numero_cuota=numero, monto=monto, fecha_vencimiento=vencimiento,
                                           pagada=pagada, fecha_pago=vencimiento if pagada else None))
@@ -208,6 +238,23 @@ class TarjetaService:
         primera = compra.cuotas[0]
         return primera.fecha_vencimiento != vencimiento_cuota(compra.fecha, 1, compra.cantidad_cuotas, False, compra.cuota_inicial)
 
+    def meses_al_resumen(self, tarjeta_id: int, fecha: date, cantidad_cuotas: int = 1) -> int:
+        """Cuantos meses despues de `fecha` se paga una compra de esta tarjeta,
+        segun su dia de cierre y de vencimiento. Si no los tiene cargados, vale
+        la regla anterior: 1 pago el mismo mes, cuotas desde el siguiente."""
+        tarjeta = self._tarjetas.obtener(tarjeta_id)
+        meses = meses_hasta_el_resumen(fecha, tarjeta.dia_cierre, tarjeta.dia_vencimiento) if tarjeta else None
+        return meses if meses is not None else (1 if cantidad_cuotas > 1 else 0)
+
+    @staticmethod
+    def meses_al_resumen_de(compra: Compra) -> int:
+        """Cuantos meses despues de su fecha entro al resumen una compra ya
+        cargada (donde cae la compra en 1 pago, o la cuota en la que empezo)."""
+        primera = next((c for c in compra.cuotas if c.numero_cuota == compra.cuota_inicial), None)
+        if primera is None:
+            return 0
+        return (primera.fecha_vencimiento.year - compra.fecha.year) * 12 + primera.fecha_vencimiento.month - compra.fecha.month
+
     def editar_compra(
         self,
         compra_id: int,
@@ -219,6 +266,7 @@ class TarjetaService:
         cantidad_cuotas: int,
         cuotas_pagadas: int,
         tarjeta_cerrada: bool = False,
+        meses_al_resumen: int | None = None,
     ) -> Compra:
         """Corrige cualquier dato de una compra (por si se cargo mal). Las cuotas
         que ya estaban pagadas no se modifican (monto, vencimiento y fecha de
@@ -235,7 +283,8 @@ class TarjetaService:
             raise ValueError("Las cuotas pagadas tienen que estar entre 0 y la cantidad de cuotas")
         # La cuota en la que se empezo se mantiene (si sigue entrando en la cantidad de cuotas).
         cuota_inicial = min(actual.cuota_inicial, cantidad_cuotas)
-        cuotas = self._cuotas_editadas(actual, fecha, monto_total, cantidad_cuotas, cuotas_pagadas, tarjeta_cerrada, cuota_inicial)
+        cuotas = self._cuotas_editadas(actual, fecha, monto_total, cantidad_cuotas, cuotas_pagadas, tarjeta_cerrada, cuota_inicial,
+                                       meses_al_resumen)
         compra = Compra(
             id=compra_id, tarjeta_id=tarjeta_id, fecha=fecha, concepto=concepto.strip(), detalle=detalle,
             monto_total=monto_total, categoria_id=actual.categoria_id, cantidad_cuotas=cantidad_cuotas, cuotas=cuotas,
@@ -275,18 +324,21 @@ class TarjetaService:
         self._registrar_egreso(compra.tarjeta_id, fecha_pago, f"{tarjeta.nombre}: {compra.concepto}", detalle, cuota.monto,
                                compra.categoria_id)
 
-    def resumen_del_mes(self, tarjeta_id: int, anio: int, mes: int) -> ResumenMesTarjeta:
+    def resumen_del_mes(self, tarjeta_id: int, anio: int, mes: int, hoy: date | None = None) -> ResumenMesTarjeta:
         """Lo que entra en el resumen de la tarjeta ese mes: cuotas y compras en
         1 pago que vencen en el mes, mas lo que quedo sin pagar de meses
-        anteriores (si no se pago, se sigue debiendo)."""
+        anteriores (si no se pago, se sigue debiendo). En un mes que todavia
+        no llego solo entra lo de ese mes: lo anterior se paga antes."""
+        hoy = hoy or date.today()
         desde = date(anio, mes, 1)
         hasta = date(anio, mes, calendar.monthrange(anio, mes)[1])
+        arrastra_desde = date.min if (anio, mes) <= (hoy.year, hoy.month) else desde
         resumen = ResumenMesTarjeta(pagos=self._tarjetas.pagos_del_mes(tarjeta_id, anio, mes))
         for compra in self._compras.listar_por_tarjeta(tarjeta_id):
             for cuota in compra.cuotas:
-                if not cuota.pagada and cuota.fecha_vencimiento <= hasta:
+                if not cuota.pagada and arrastra_desde <= cuota.fecha_vencimiento <= hasta:
                     resumen.pendientes.append((compra, cuota))
-                elif cuota.pagada and desde <= cuota.fecha_vencimiento <= hasta:
+                elif cuota.pagada and desde <= max(cuota.fecha_vencimiento, cuota.fecha_pago or date.min) <= hasta:
                     resumen.pagadas.append((compra, cuota))
         return resumen
 

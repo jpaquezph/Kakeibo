@@ -20,10 +20,11 @@ from ...app.services.compra_mensual import (
     MAX_LOCALES, MENSAJE_MAX_LOCALES, MESES, ORDENES_PRODUCTOS, CompraMensualService, InfoLista, ListaCompra, calcular,
     coincide_busqueda, ordenar_productos,
 )
-from ...app.services.tarjetas import TarjetaService, vencimiento_cuota
+from ...app.services.tarjetas import TarjetaService
 from .. import theme
 from . import components
 from .inversiones_forms import _CampoFecha, fmt_decimal, parse_decimal
+from .tarjetas_view import SelectorResumen
 
 # Mes que se esta viendo, orden y busqueda: se recuerdan al volver a la seccion.
 # ver_detalle: id de la compra cerrada cuyo detalle se esta consultando.
@@ -526,20 +527,22 @@ def build_compra_mensual_view(
                                      filled=True, bgcolor=theme.SURFACE_ALT, border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=240)
             cuotas_f = ft.TextField(label="Cuotas", value="1", width=100, filled=True, bgcolor=theme.SURFACE_ALT,
                                     border_radius=theme.RADIUS_SM, border_color=theme.BORDER, input_filter=ft.NumbersOnlyInputFilter())
-            cerrada = ft.Checkbox(label="La tarjeta ya cerró el resumen de este mes", value=False, active_color=theme.TARJETAS_COLOR)
-            cuando = ft.Text("", size=12, color=theme.TEXT_SECONDARY, italic=True)
+            # El mes del resumen sale del cierre y el vencimiento de la tarjeta (se puede cambiar).
+            resumen_sel = SelectorResumen(page, tarjeta_service, filled=True, bgcolor=theme.SURFACE_ALT,
+                                          border_radius=theme.RADIUS_SM, border_color=theme.BORDER, width=240)
 
             def actualizar_cuando(_e=None):
+                if not tarjeta_dd.value:
+                    return
                 try:
                     n = int(cuotas_f.value or "1")
                 except ValueError:
                     n = 1
-                vence = vencimiento_cuota(fecha.valor or date.today(), 1, max(n, 1), bool(cerrada.value))
-                que = "La primera cuota se paga" if n > 1 else "Se paga"
-                cuando.value = f"{que} en {MESES[vence.month - 1].lower()} {vence.year}."
+                resumen_sel.proponer(int(tarjeta_dd.value), fecha.valor or date.today(), max(n, 1),
+                                     "La primera cuota se paga" if n > 1 else "Se paga")
 
             bloque_tarjeta = ft.Column(
-                [ft.Row([tarjeta_dd, cuotas_f], spacing=10), cerrada, cuando] if tarjetas else
+                [ft.Row([tarjeta_dd, cuotas_f, resumen_sel.dropdown], spacing=10), resumen_sel.aviso] if tarjetas else
                 [ft.Text("No tenés tarjetas en pesos cargadas. Agregalas en la sección Tarjetas.", size=12, color=theme.EXPENSE_RED)],
                 spacing=8, visible=False,
             )
@@ -555,7 +558,7 @@ def build_compra_mensual_view(
 
             tipo.on_change = on_tipo
             cuotas_f.on_change = on_cambio_tarjeta
-            cerrada.on_change = on_cambio_tarjeta
+            tarjeta_dd.on_select = on_cambio_tarjeta
             actualizar_cuando()
 
             def registrar(_e=None):
@@ -575,7 +578,10 @@ def build_compra_mensual_view(
                 categoria = next(c for c in categorias if str(c.id) == categoria_dd.value)
                 if es_tarjeta:
                     tarjeta = next(t for t in tarjetas if str(t.id) == tarjeta_dd.value)
+                    if resumen_sel.fecha != (fecha.valor or date.today()):
+                        actualizar_cuando()  # cambio la fecha despues de elegir el mes: se vuelve a calcular
                     como = f"en la tarjeta {tarjeta.nombre}" + (f", en {cuotas} cuotas" if cuotas > 1 else ", en 1 pago")
+                    como += f" (resumen de {MESES[resumen_sel.mes.month - 1].lower()} {resumen_sel.mes.year})"
                 else:
                     como = "como egreso"
                 texto = f"Se va a registrar {monto.formatted()} {como}, en la categoría {categoria.nombre}."
@@ -584,7 +590,7 @@ def build_compra_mensual_view(
                     try:
                         if es_tarjeta:
                             service.registrar_en_tarjeta(lista.id, int(tarjeta_dd.value), fecha.valor or date.today(), concepto_f.value or "",
-                                                         monto, categoria.id, cuotas, bool(cerrada.value))
+                                                         monto, categoria.id, cuotas, meses_al_resumen=resumen_sel.meses)
                         else:
                             service.registrar_egreso(lista.id, fecha.valor or date.today(), concepto_f.value or "", monto, categoria.id,
                                                      f"Egreso · {categoria.nombre}")
