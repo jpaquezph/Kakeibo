@@ -1,0 +1,27 @@
+# Proyecto de la app movil (Android). Lo usa packaging/armar_apk.py, que lo
+# copia a la carpeta de armado junto con el codigo. La version de escritorio
+# no lo usa: sigue con requirements.txt y Flet 0.86.5.
+#
+# La app movil va con Flet 1.0 porque el ingreso por huella (flet-local-auth)
+# solo existe desde esa version.
+
+[project]
+name = "kakeibo"
+version = "2.0.0"
+description = "Kakeibo: gestion de gastos del hogar"
+requires-python = ">=3.10"
+dependencies = [
+    "flet==1.0.3",
+    "flet-local-auth==1.0.3",
+]
+
+[tool.flet]
+org = "com.kakeibo"
+product = "Kakeibo"
+company = "Kakeibo"
+
+# La plantilla de Flet 1.0.3 fija jni en 1.0.0, y jni_flutter desde la 1.0.4 (del
+# 2026-10-01) ya pide jni 1.1: sin esto la compilacion falla con "The
+# generated bindings expect package:jni ^1.1.0". Quitarlo al subir de Flet.
+[tool.flet.flutter.pubspec.dependency_overrides]
+jni_flutter = "1.0.3"

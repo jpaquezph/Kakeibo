@@ -20,3 +20,4 @@ scripts/manual/anotadas/
 scripts/manual/demo.db
 scripts/manual/*.log
 scripts/manual/*.pdf
+.venv-movil/

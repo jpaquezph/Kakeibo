@@ -18,6 +18,9 @@ from .avatar import validar_imagen
 PBKDF2_ITERATIONS = 260_000
 DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
 MAX_INTENTOS_PIN = 5  # despues de esto el desbloqueo pide la contrasena
+# Clave de configuracion: id del usuario que entra con su huella en este
+# dispositivo (version movil). Es propia de cada dispositivo.
+CLAVE_HUELLA_USUARIO = "huella_usuario_id"
 
 PREGUNTAS_SECRETAS = [
     "¿Cuál es el nombre de tu primera mascota?",
@@ -186,12 +189,57 @@ class AuthService:
         if not hmac.compare_digest(candidate_hash, row["password_hash"]):
             raise AuthError("Usuario o contrasena incorrectos")
 
-        self._conn.execute("INSERT INTO sesiones (usuario_id) VALUES (?)", (row["id"],))
+        return self._abrir_sesion(row["id"], row["username"])
+
+    def _abrir_sesion(self, usuario_id: int, username: str) -> Session:
+        self._conn.execute("INSERT INTO sesiones (usuario_id) VALUES (?)", (usuario_id,))
         self._conn.commit()
 
         now = time.monotonic()
-        self.session = Session(usuario_id=row["id"], username=row["username"], started_at=now, last_activity=now)
+        self.session = Session(usuario_id=usuario_id, username=username, started_at=now, last_activity=now)
         return self.session
+
+    # --- Ingreso con huella (version movil) ---
+    # La huella la comprueba el telefono, no la app: estos metodos se llaman
+    # recien cuando el sistema confirmo la huella. Solo sirve para el usuario
+    # que la activo en este dispositivo, con su sesion abierta por contrasena.
+
+    def usuario_con_huella(self) -> str | None:
+        """Nombre del usuario que activo la huella en este dispositivo, o None."""
+        row = self._conn.execute(
+            "SELECT u.username FROM configuracion c JOIN usuarios u ON u.id = CAST(c.valor AS INTEGER) WHERE c.clave = ?",
+            (CLAVE_HUELLA_USUARIO,),
+        ).fetchone()
+        return row["username"] if row else None
+
+    def activar_huella(self) -> None:
+        """Desde ahora el usuario de la sesion actual puede entrar con su huella."""
+        if self.session is None:
+            raise AuthError("Ingresá con tu contraseña para activar la huella")
+        self._conn.execute(
+            "INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
+            (CLAVE_HUELLA_USUARIO, str(self.session.usuario_id)),
+        )
+        self._conn.commit()
+
+    def desactivar_huella(self) -> None:
+        self._conn.execute("DELETE FROM configuracion WHERE clave = ?", (CLAVE_HUELLA_USUARIO,))
+        self._conn.commit()
+
+    def login_con_huella(self) -> Session:
+        """Abre la sesion del usuario que activo la huella, sin contrasena."""
+        username = self.usuario_con_huella()
+        if username is None:
+            raise AuthError("La huella no está activada en este dispositivo")
+        row = self._conn.execute("SELECT id FROM usuarios WHERE username = ?", (username,)).fetchone()
+        return self._abrir_sesion(row["id"], username)
+
+    def desbloquear_con_huella(self) -> None:
+        """Desbloquea la sesion actual, si es la del usuario que activo la huella."""
+        if self.session is None or self.session.username != self.usuario_con_huella():
+            raise AuthError("Ingresá con tu contraseña")
+        self.session.intentos_pin_fallidos = 0
+        self.session.touch()
 
     # --- Perfil del usuario logueado (seccion Configuracion > Usuario) ---
 

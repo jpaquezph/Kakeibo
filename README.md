@@ -39,10 +39,28 @@ home_budget/
   ui/
     theme.py       -> paleta de colores y componentes visuales compartidos
     desktop/       -> pantallas Flet (login, dashboard, movimientos, tarjetas, prestamos, historial)
+    mobile/        -> pantallas para Android (en armado): menu hamburguesa, una columna, formularios a pantalla completa
 migrations/        -> esquema SQL
 tests/              -> pytest (unit + integration)
-main.py             -> punto de entrada
+main.py             -> punto de entrada (escritorio)
+main_movil.py       -> punto de entrada movil; en la computadora abre una ventana del tamano de un telefono
 ```
+
+## Versión móvil (en armado)
+
+```bash
+.venv\Scripts\python main_movil.py
+```
+
+Usa los mismos servicios de `app/` que la versión de escritorio. Funcionan
+Resumen (con la compra / venta de dólares), Movimientos, Gastos fijos,
+Tarjetas (cargar y editar tarjetas y compras, pagar una cuota o el resumen del
+mes), Préstamos (cargar, editar, pagar y cambiar cuotas), Inversiones,
+Calendario (solo consulta) y Configuración (usuario, contraseña, PIN, huella,
+apariencia, categorías y registro de errores; se entra tocando la foto de
+perfil). Las listas tienen buscador y orden. Sincronización es una maqueta:
+todavía no cruza datos con la computadora. Compra mensual e Historial son
+exclusivas de escritorio.
 
 ## Empaquetado (generar un instalador para Windows)
 

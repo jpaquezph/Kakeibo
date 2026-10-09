@@ -219,9 +219,9 @@ def section_pill(text: str, color: str, bg: str, icon: str | None = None) -> ft.
     )
 
 
-def primary_button(text: str, on_click, color: str | None = None, icon: str | None = None, width: int | None = None) -> ft.ElevatedButton:
+def primary_button(text: str, on_click, color: str | None = None, icon: str | None = None, width: int | None = None) -> ft.Button:
     color = color or DASHBOARD_COLOR
-    return ft.ElevatedButton(
+    return ft.Button(
         content=text,
         icon=to_icon(icon),
         icon_color="#FFFFFF",
